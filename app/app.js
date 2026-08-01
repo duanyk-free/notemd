@@ -69,23 +69,29 @@
     // ── Bootstrap ────────────────────────────────────────────────────
 
     init() {
-      this.applyTheme();
-      this.cmElement = document.getElementById("editor-pane");
-      this.initEditor();
-      this.bindEvents();
-      this.bindKeyboard();
-      this.newTab();
+      try {
+        this.applyTheme();
+        this.cmElement = document.getElementById("editor-pane");
+        this.initEditor();
+        this.bindEvents();
+        this.bindKeyboard();
+        this.newTab();
+      } catch (e) {
+        document.body.innerHTML = '<div style="padding:40px;color:red;font-family:monospace"><h2>Init Error</h2><pre>' + e.message + '\n\n' + e.stack + '</pre></div>';
+        throw e;
+      }
     }
 
     initEditor() {
-      this.cm = CodeMirror(this.cmElement, {
+      try {
+        this.cm = CodeMirror(this.cmElement, {
         value: "",
         mode: "markdown",
         theme: this.theme === "dark" ? "material-darker" : "eclipse",
         lineNumbers: true,
         lineWrapping: true,
         foldGutter: true,
-        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter", "CodeMirror-lint-markers"],
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],
         autoCloseBrackets: true,
         matchBrackets: true,
         styleActiveLine: true,
@@ -108,6 +114,13 @@
 
       this.cm.on("changes", () => this.onEditorChange());
       this.cm.on("cursorActivity", () => this.updateStatus());
+      } catch (e) {
+        // CodeMirror failed to initialize — show error but continue
+        document.getElementById("editor-pane").innerHTML =
+          '<div style="padding:20px;color:var(--danger)">' +
+          'Editor failed to load: ' + e.message + '</div>';
+        this.cm = null;
+      }
     }
 
     // ── Events ───────────────────────────────────────────────────────
@@ -169,7 +182,7 @@
     // ── Tab management ────────────────────────────────────────────────
 
     newTab(title, path, content) {
-      // Save current tab state before switching
+      if (!this.cm) return;  // Editor not initialized
       if (this.activeTabId) this._saveCurrentToTab();
 
       const id = "tab-" + (++this.tabCounter);
