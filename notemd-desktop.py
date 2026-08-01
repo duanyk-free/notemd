@@ -81,11 +81,25 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             path = "/index.html"
         key = path.lstrip("/")
-        if key not in _EMBEDDED:
-            self.send_error(404)
-            return
-        ct, body = _EMBEDDED[key]
-        data = body.encode("utf-8")
+        # Try embedded data first, then fall back to disk
+        if key in _EMBEDDED:
+            ct, body = _EMBEDDED[key]
+            data = body.encode("utf-8")
+        else:
+            # Fallback: read from app/ directory on disk
+            file_path = (APP_DIR / key).resolve()
+            try:
+                file_path.relative_to(APP_DIR.resolve())
+            except ValueError:
+                self.send_error(403)
+                return
+            if not file_path.exists() or not file_path.is_file():
+                self.send_error(404)
+                return
+            ct, _ = mimetypes.guess_type(str(file_path))
+            if ct is None:
+                ct = "application/octet-stream"
+            data = file_path.read_bytes()
         self.send_response(200)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", str(len(data)))
