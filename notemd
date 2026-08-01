@@ -43,28 +43,24 @@ def _load_embedded():
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Notemd</title>
 
-<!-- CodeMirror 5 core -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/eclipse.min.css">
-<!-- CodeMirror addons -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css">
-<!-- Pygments code highlighting (server-side rendered) -->
+<!-- CodeMirror (local) -->
+<link rel="stylesheet" href="vendor/codemirror/codemirror.min.css">
+<link rel="stylesheet" href="vendor/codemirror/theme/material-darker.min.css">
+<link rel="stylesheet" href="vendor/codemirror/theme/eclipse.min.css">
+<link rel="stylesheet" href="vendor/codemirror/addon/dialog/dialog.min.css">
+<link rel="stylesheet" href="vendor/codemirror/addon/fold/foldgutter.min.css">
+<!-- Pygments (local) -->
 <link rel="stylesheet" href="pygments-dark.css" id="pygments-theme">
-
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <div id="app">
-  <!-- ── Main area ── -->
   <div id="main-area">
     <div id="tab-bar">
       <div id="tabs"></div>
       <button id="btn-new-tab" title="New file (Ctrl+N)">＋</button>
     </div>
-
     <div id="editor-container">
       <div id="editor-pane"></div>
       <div id="preview-pane" class="hidden">
@@ -77,7 +73,6 @@ def _load_embedded():
     </div>
   </div>
 
-  <!-- ── File picker modal ── -->
   <div id="file-picker-overlay" class="modal-overlay hidden">
     <div id="file-picker" class="modal-dialog">
       <div class="modal-header">
@@ -98,7 +93,6 @@ def _load_embedded():
     </div>
   </div>
 
-  <!-- ── Status bar ── -->
   <footer id="status-bar">
     <span id="status-file" title="Current file path">untitled</span>
     <span class="status-sep">│</span>
@@ -117,31 +111,28 @@ def _load_embedded():
   </footer>
 </div>
 
-<!-- ── CodeMirror (CDN — editor core) ── -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
-<!-- Modes -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/dockerfile/dockerfile.min.js"></script>
-<!-- Addons -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/markdown-fold.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/brace-fold.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/xml-fold.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/search.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
-
+<!-- All scripts are local — zero CDN dependency -->
+<script src="vendor/codemirror/codemirror.min.js"></script>
+<script src="vendor/codemirror/mode/markdown/markdown.min.js"></script>
+<script src="vendor/codemirror/mode/python/python.min.js"></script>
+<script src="vendor/codemirror/mode/javascript/javascript.min.js"></script>
+<script src="vendor/codemirror/mode/xml/xml.min.js"></script>
+<script src="vendor/codemirror/mode/css/css.min.js"></script>
+<script src="vendor/codemirror/mode/shell/shell.min.js"></script>
+<script src="vendor/codemirror/mode/clike/clike.min.js"></script>
+<script src="vendor/codemirror/mode/yaml/yaml.min.js"></script>
+<script src="vendor/codemirror/mode/sql/sql.min.js"></script>
+<script src="vendor/codemirror/mode/dockerfile/dockerfile.min.js"></script>
+<script src="vendor/codemirror/addon/fold/foldcode.min.js"></script>
+<script src="vendor/codemirror/addon/fold/foldgutter.min.js"></script>
+<script src="vendor/codemirror/addon/fold/markdown-fold.min.js"></script>
+<script src="vendor/codemirror/addon/fold/brace-fold.min.js"></script>
+<script src="vendor/codemirror/addon/fold/xml-fold.min.js"></script>
+<script src="vendor/codemirror/addon/edit/closebrackets.min.js"></script>
+<script src="vendor/codemirror/addon/search/search.min.js"></script>
+<script src="vendor/codemirror/addon/search/searchcursor.min.js"></script>
+<script src="vendor/codemirror/addon/dialog/dialog.min.js"></script>
+<script src="vendor/codemirror/addon/selection/active-line.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
