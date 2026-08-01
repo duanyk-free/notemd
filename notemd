@@ -58,23 +58,6 @@ def _load_embedded():
 <body>
 
 <div id="app">
-  <!-- ── Sidebar ── -->
-  <aside id="sidebar">
-    <div id="sidebar-header">
-      <span class="sidebar-title">📁 Explorer</span>
-      <button id="btn-sidebar-toggle" title="Toggle sidebar">◀</button>
-    </div>
-    <div id="sidebar-body">
-      <div id="file-tree"></div>
-    </div>
-  </aside>
-
-  <!-- ── Resize handle ── -->
-  <div id="sidebar-handle"></div>
-
-  <!-- ── Sidebar restore (visible when collapsed) ── -->
-  <div id="sidebar-restore" title="Show Explorer (Ctrl+B)"></div>
-
   <!-- ── Main area ── -->
   <div id="main-area">
     <div id="tab-bar">
@@ -253,111 +236,14 @@ button:active { background: var(--bg-active); }
 
 #app {
   display: grid;
-  grid-template-columns: 240px 4px 1fr;
   grid-template-rows: 1fr auto;
   height: 100vh;
   overflow: hidden;
 }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────── */
-
-#sidebar {
-  grid-column: 1;
-  grid-row: 1;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  z-index: 10;
-  overflow: hidden;
-  transition: width 0.15s ease;
-}
-#app.sidebar-collapsed { grid-template-columns: 0px 0px 1fr; }
-#app.sidebar-collapsed #sidebar { width: 0; border-right: none; min-width: 0; }
-#app.sidebar-collapsed #sidebar-handle { width: 0; cursor: default; }
-
-/* Show a restore handle when sidebar is collapsed */
-#sidebar-restore {
-  display: none;
-  position: fixed;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 48px;
-  border-radius: 0 4px 4px 0;
-  background: var(--accent);
-  opacity: 0.5;
-  cursor: pointer;
-  z-index: 30;
-  transition: opacity 0.15s;
-}
-#sidebar-restore:hover { opacity: 1; width: 8px; }
-#app.sidebar-collapsed #sidebar-restore { display: block; }
-
-#sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--fg-secondary);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  min-width: 200px;
-}
-
-#btn-sidebar-toggle {
-  padding: 2px 6px;
-  font-size: 10px;
-  line-height: 1;
-}
-
-#sidebar-body {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 4px 0;
-}
-
-/* Sidebar resize handle */
-#sidebar-handle {
-  grid-column: 2;
-  grid-row: 1;
-  cursor: col-resize;
-  z-index: 11;
-  background: transparent;
-}
-#sidebar-handle:hover { background: var(--accent); }
-
-/* ── File tree ───────────────────────────────────────────────────────── */
-
-#file-tree { font-size: 13px; user-select: none; }
-
-.file-tree-entry {
-  display: flex;
-  align-items: center;
-  padding: 3px 8px 3px calc(12px + var(--depth, 0) * 16px);
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  gap: 4px;
-}
-.file-tree-entry:hover { background: var(--bg-hover); }
-.file-tree-entry.active { background: var(--bg-active); }
-
-.file-tree-entry .icon { flex-shrink: 0; width: 16px; text-align: center; }
-.file-tree-entry .name { overflow: hidden; text-overflow: ellipsis; }
-
 /* ── Main area ───────────────────────────────────────────────────────── */
 
 #main-area {
-  grid-column: 3;
-  grid-row: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -825,24 +711,6 @@ button:active { background: var(--bg-active); }
     return MODE_LABELS[mode] || mode.charAt(0).toUpperCase() + mode.slice(1);
   }
 
-  function getIcon(name, isDir) {
-    if (isDir) return "📁";
-    const ext = (name || "").split(".").pop().toLowerCase();
-    const icons = {
-      md: "📝", markdown: "📝", txt: "📄", log: "📄",
-      py: "🐍", js: "🟨", mjs: "🟨", ts: "🔷", jsx: "⚛️",
-      html: "🌐", htm: "🌐", xml: "📋", svg: "🖼",
-      css: "🎨", scss: "🎨", less: "🎨",
-      json: "📦", yaml: "⚙️", yml: "⚙️", toml: "⚙️",
-      sh: "💻", bash: "💻",
-      c: "⚡", cpp: "⚡", h: "⚡", java: "☕",
-      sql: "🗄", dockerfile: "🐳",
-      png: "🖼", jpg: "🖼", jpeg: "🖼", gif: "🖼", svg: "🖼",
-      zip: "📦", tar: "📦", gz: "📦",
-    };
-    return icons[ext] || "📄";
-  }
-
   // ── Debounce helper ──────────────────────────────────────────────────
 
   function debounce(fn, ms) {
@@ -876,7 +744,6 @@ button:active { background: var(--bg-active); }
       this.applyTheme();
       this.cmElement = document.getElementById("editor-pane");
       this.initEditor();
-      this.initFileTree();
       this.bindEvents();
       this.bindKeyboard();
       this.newTab();
@@ -924,8 +791,6 @@ button:active { background: var(--bg-active); }
       document.getElementById("btn-open").onclick = () => this.openFileDialog();
       document.getElementById("btn-preview").onclick = () => this.togglePreview();
       document.getElementById("btn-theme").onclick = () => this.toggleTheme();
-      document.getElementById("btn-sidebar-toggle").onclick = () => this.toggleSidebar();
-      document.getElementById("sidebar-restore").onclick = () => this.toggleSidebar();
       document.getElementById("btn-close-preview").onclick = () => this.hidePreview();
 
       // Tab clicks (delegation)
@@ -939,9 +804,6 @@ button:active { background: var(--bg-active); }
           this.switchTab(id);
         }
       });
-
-      // Drag to resize sidebar
-      this.initSidebarResize();
     }
 
     bindKeyboard() {
@@ -972,41 +834,8 @@ button:active { background: var(--bg-active); }
         } else if (mod && e.key === "h") {
           e.preventDefault();
           this.showReplace();
-        } else if (mod && e.key === "b") {
-          e.preventDefault();
-          this.toggleSidebar();
-        }
       });
     }
-
-    initSidebarResize() {
-      const handle = document.getElementById("sidebar-handle");
-      const app = document.getElementById("app");
-      let startX, startWidth;
-
-      handle.addEventListener("mousedown", (e) => {
-        if (app.classList.contains("sidebar-collapsed")) return;
-        startX = e.clientX;
-        // Read current sidebar width from the grid
-        const cols = getComputedStyle(app).gridTemplateColumns;
-        startWidth = parseInt(cols.split("px")[0]);
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
-      });
-
-      const onMove = (e) => {
-        const w = Math.max(120, Math.min(500, startWidth + (e.clientX - startX)));
-        app.style.gridTemplateColumns = w + "px 4px 1fr";
-      };
-
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
     }
 
     // ── Tab management ────────────────────────────────────────────────
@@ -1491,72 +1320,6 @@ button:active { background: var(--bg-active); }
       }
     }
 
-    // ── File tree ────────────────────────────────────────────────────
-
-    async initFileTree() {
-      try {
-        const res = await fetch("/api/home");
-        const data = await res.json();
-        this._homeDir = data.home;
-        this.loadDirectory(data.home);
-      } catch (err) {
-        console.error("File tree init error:", err);
-      }
-    }
-
-    async loadDirectory(dirPath) {
-      const tree = document.getElementById("file-tree");
-      tree.innerHTML = '<div class="file-tree-entry"><span class="icon">⏳</span> Loading...</div>';
-
-      try {
-        const res = await fetch("/api/files?dir=" + encodeURIComponent(dirPath));
-        const data = await res.json();
-        if (data.error) {
-          tree.innerHTML = '<div class="file-tree-entry">❌ ' + this._esc(data.error) + "</div>";
-          return;
-        }
-        this.renderTree(data.items, tree, dirPath, 0);
-      } catch (err) {
-        tree.innerHTML = '<div class="file-tree-entry">❌ ' + this._esc(err.message) + "</div>";
-      }
-    }
-
-    renderTree(items, parent, parentPath, depth) {
-      parent.innerHTML = "";
-
-      // Parent directory link (if not root)
-      if (depth === 0 && parentPath) {
-        const upPath = parentPath.split("/").slice(0, -1).join("/") || "/";
-        // Go up one level
-        const pp = parentPath.substring(0, parentPath.lastIndexOf("/")) || "/home/admin";
-        const up = document.createElement("div");
-        up.className = "file-tree-entry";
-        up.style.setProperty("--depth", 0);
-        up.innerHTML = '<span class="icon">📂</span> <span class="name" style="color:var(--fg-muted)">..</span>';
-        up.onclick = () => this.loadDirectory(pp);
-        parent.appendChild(up);
-      }
-
-      items.forEach((item) => {
-        const el = document.createElement("div");
-        el.className = "file-tree-entry";
-        el.style.setProperty("--depth", depth);
-        el.innerHTML = `<span class="icon">${getIcon(item.name, item.isDir)}</span> <span class="name">${this._esc(item.name)}</span>`;
-        el.title = item.path;
-
-        if (item.isDir) {
-          el.onclick = () => this.loadDirectory(item.path);
-        } else {
-          el.onclick = () => this.loadFile(item.path);
-          // Highlight if this file is currently open
-          const openTab = this.tabs.find((t) => t.path === item.path);
-          if (openTab) el.classList.add("active");
-        }
-
-        parent.appendChild(el);
-      });
-    }
-
     // ── Theme ────────────────────────────────────────────────────────
 
     toggleTheme() {
@@ -1584,14 +1347,7 @@ button:active { background: var(--bg-active); }
 
     // ── Sidebar ──────────────────────────────────────────────────────
 
-    toggleSidebar() {
-      const app = document.getElementById("app");
-      app.classList.toggle("sidebar-collapsed");
-      const collapsed = app.classList.contains("sidebar-collapsed");
-      document.getElementById("btn-sidebar-toggle").textContent = collapsed ? "▶" : "◀";
-    }
-
-    // ── Status bar ───────────────────────────────────────────────────
+  // ── Boot ───────────────────────────────────────────────────────────
 
     updateStatus() {
       if (!this.cm) return;
