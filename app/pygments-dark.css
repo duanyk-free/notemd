@@ -1,0 +1,86 @@
+/* Pygments monokai (dark) — auto-generated */
+.markdown-body .codehilite pre { line-height: 125%; }
+.markdown-body .codehilite td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite .hll { background-color: #49483e }
+.markdown-body .codehilite { background: #272822; color: #F8F8F2 }
+.markdown-body .codehilite .c { color: #959077 } /* Comment */
+.markdown-body .codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.markdown-body .codehilite .esc { color: #F8F8F2 } /* Escape */
+.markdown-body .codehilite .g { color: #F8F8F2 } /* Generic */
+.markdown-body .codehilite .k { color: #66D9EF } /* Keyword */
+.markdown-body .codehilite .l { color: #AE81FF } /* Literal */
+.markdown-body .codehilite .n { color: #F8F8F2 } /* Name */
+.markdown-body .codehilite .o { color: #FF4689 } /* Operator */
+.markdown-body .codehilite .x { color: #F8F8F2 } /* Other */
+.markdown-body .codehilite .p { color: #F8F8F2 } /* Punctuation */
+.markdown-body .codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.markdown-body .codehilite .cm { color: #959077 } /* Comment.Multiline */
+.markdown-body .codehilite .cp { color: #959077 } /* Comment.Preproc */
+.markdown-body .codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.markdown-body .codehilite .c1 { color: #959077 } /* Comment.Single */
+.markdown-body .codehilite .cs { color: #959077 } /* Comment.Special */
+.markdown-body .codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.markdown-body .codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.markdown-body .codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.markdown-body .codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.markdown-body .codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.markdown-body .codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.markdown-body .codehilite .go { color: #66D9EF } /* Generic.Output */
+.markdown-body .codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.markdown-body .codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.markdown-body .codehilite .gu { color: #959077 } /* Generic.Subheading */
+.markdown-body .codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.markdown-body .codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.markdown-body .codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.markdown-body .codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.markdown-body .codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.markdown-body .codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.markdown-body .codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.markdown-body .codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.markdown-body .codehilite .m { color: #AE81FF } /* Literal.Number */
+.markdown-body .codehilite .s { color: #E6DB74 } /* Literal.String */
+.markdown-body .codehilite .na { color: #A6E22E } /* Name.Attribute */
+.markdown-body .codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.markdown-body .codehilite .nc { color: #A6E22E } /* Name.Class */
+.markdown-body .codehilite .no { color: #66D9EF } /* Name.Constant */
+.markdown-body .codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.markdown-body .codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.markdown-body .codehilite .ne { color: #A6E22E } /* Name.Exception */
+.markdown-body .codehilite .nf { color: #A6E22E } /* Name.Function */
+.markdown-body .codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.markdown-body .codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.markdown-body .codehilite .nx { color: #A6E22E } /* Name.Other */
+.markdown-body .codehilite .py { color: #F8F8F2 } /* Name.Property */
+.markdown-body .codehilite .nt { color: #FF4689 } /* Name.Tag */
+.markdown-body .codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.markdown-body .codehilite .ow { color: #FF4689 } /* Operator.Word */
+.markdown-body .codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.markdown-body .codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.markdown-body .codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.markdown-body .codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.markdown-body .codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.markdown-body .codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.markdown-body .codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.markdown-body .codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.markdown-body .codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.markdown-body .codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.markdown-body .codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.markdown-body .codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.markdown-body .codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.markdown-body .codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.markdown-body .codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.markdown-body .codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.markdown-body .codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.markdown-body .codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.markdown-body .codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.markdown-body .codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.markdown-body .codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.markdown-body .codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.markdown-body .codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.markdown-body .codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.markdown-body .codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.markdown-body .codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.markdown-body .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */

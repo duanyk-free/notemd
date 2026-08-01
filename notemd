@@ -1,0 +1,2027 @@
+#!/usr/bin/env python3
+"""Notemd Desktop — native window launcher.
+
+Dependencies (optional):
+  pywebview  → native desktop window (pip install pywebview)
+  None       → falls back to opening browser tab
+
+Usage:
+  python3 notemd-desktop.py                # desktop window (auto-detect)
+  python3 notemd-desktop.py --browser      # force browser mode
+  python3 notemd-desktop.py --port 9000    # custom port
+"""
+
+import json
+import mimetypes
+import os
+import sys
+import threading
+import urllib.parse
+import webbrowser
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+
+PORT = 8099
+APP_DIR = Path(__file__).parent / "app"
+MAX_FILE_SIZE = 2 * 1024 * 1024
+
+# ── Embedded frontend assets ─────────────────────────────────────────────
+# These are populated by build-standalone.py, or loaded from disk at startup.
+
+_EMBEDDED = {}  # { "index.html": (content_type, data_string), ... }
+
+
+def _load_embedded():
+    """Load frontend files from embedded data (or fallback to disk)."""
+    global _EMBEDDED
+    # Built-in embedded assets (auto-generated)
+    _EMBEDDED = {
+        "index.html": ("text/html; charset=utf-8", """<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notemd</title>
+
+<!-- CodeMirror 5 core -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/eclipse.min.css">
+<!-- CodeMirror addons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css">
+<!-- Pygments code highlighting (server-side rendered) -->
+<link rel="stylesheet" href="pygments-dark.css" id="pygments-theme">
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- ── Sidebar ── -->
+  <aside id="sidebar">
+    <div id="sidebar-header">
+      <span class="sidebar-title">📁 Explorer</span>
+      <button id="btn-sidebar-toggle" title="Toggle sidebar">◀</button>
+    </div>
+    <div id="sidebar-body">
+      <div id="file-tree"></div>
+    </div>
+  </aside>
+
+  <!-- ── Resize handle ── -->
+  <div id="sidebar-handle"></div>
+
+  <!-- ── Sidebar restore (visible when collapsed) ── -->
+  <div id="sidebar-restore" title="Show Explorer (Ctrl+B)"></div>
+
+  <!-- ── Main area ── -->
+  <div id="main-area">
+    <div id="tab-bar">
+      <div id="tabs"></div>
+      <button id="btn-new-tab" title="New file (Ctrl+N)">＋</button>
+    </div>
+
+    <div id="editor-container">
+      <div id="editor-pane"></div>
+      <div id="preview-pane" class="hidden">
+        <div id="preview-toolbar">
+          <span>📄 Preview</span>
+          <button id="btn-close-preview" title="Close preview">✕</button>
+        </div>
+        <div id="preview-content" class="markdown-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── File picker modal ── -->
+  <div id="file-picker-overlay" class="modal-overlay hidden">
+    <div id="file-picker" class="modal-dialog">
+      <div class="modal-header">
+        <span>📂 Open File</span>
+        <button id="btn-picker-close" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="picker-breadcrumb"></div>
+        <div id="picker-file-list"></div>
+      </div>
+      <div class="modal-footer">
+        <input id="picker-input" type="text" placeholder="Filename or full path..." />
+        <div class="modal-buttons">
+          <button id="btn-picker-cancel">Cancel</button>
+          <button id="btn-picker-open" class="btn-primary">Open</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Status bar ── -->
+  <footer id="status-bar">
+    <span id="status-file" title="Current file path">untitled</span>
+    <span class="status-sep">│</span>
+    <span id="status-position">Ln 1, Col 1</span>
+    <span class="status-sep">│</span>
+    <span id="status-words">0 words</span>
+    <span class="status-sep">│</span>
+    <span id="status-mode">Plain Text</span>
+    <span class="status-spacer"></span>
+    <div class="status-actions">
+      <button id="btn-open" title="Open file (Ctrl+O)">📂 Open</button>
+      <button id="btn-save" title="Save (Ctrl+S)">💾 Save</button>
+      <button id="btn-preview" title="Toggle preview (Ctrl+Shift+P)">👁 Preview</button>
+      <button id="btn-theme" title="Toggle dark/light theme">🌓</button>
+    </div>
+  </footer>
+</div>
+
+<!-- ── CodeMirror (CDN — editor core) ── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<!-- Modes -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/dockerfile/dockerfile.min.js"></script>
+<!-- Addons -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/markdown-fold.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/brace-fold.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/xml-fold.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/search.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+
+<script src="app.js"></script>
+</body>
+</html>
+"""),
+        "style.css": ("text/css; charset=utf-8", """/* ═══════════════════════════════════════════════════════════════════════
+   Notemd — Lightweight Notepad++ style editor with Markdown preview
+   Theme: CSS custom properties, dark by default
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Theme tokens ────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="dark"] {
+  --bg-primary:        #1e1e1e;
+  --bg-secondary:      #252526;
+  --bg-tertiary:       #2d2d30;
+  --bg-hover:          #3e3e42;
+  --bg-active:         #094771;
+  --bg-input:          #333337;
+  --fg-primary:        #cccccc;
+  --fg-secondary:      #999999;
+  --fg-muted:          #666666;
+  --border:            #3e3e42;
+  --border-light:      #474747;
+  --accent:            #007acc;
+  --accent-hover:      #1a8ad4;
+  --danger:            #f44747;
+  --warning:           #cca700;
+  --success:           #6a9955;
+  --tab-active-bg:     #1e1e1e;
+  --tab-inactive-bg:   #2d2d30;
+  --scrollbar-bg:      #1e1e1e;
+  --scrollbar-thumb:   #424242;
+  --sidebar-bg:        #252526;
+  --status-bg:         #007acc;
+  --status-fg:         #ffffff;
+}
+
+[data-theme="light"] {
+  --bg-primary:        #ffffff;
+  --bg-secondary:      #f3f3f3;
+  --bg-tertiary:       #e8e8e8;
+  --bg-hover:          #e0e0e0;
+  --bg-active:         #cce5ff;
+  --bg-input:          #ffffff;
+  --fg-primary:        #333333;
+  --fg-secondary:      #666666;
+  --fg-muted:          #999999;
+  --border:            #d4d4d4;
+  --border-light:      #e0e0e0;
+  --accent:            #0078d4;
+  --accent-hover:      #106ebe;
+  --danger:            #e81123;
+  --warning:           #ff8c00;
+  --success:           #107c10;
+  --tab-active-bg:     #ffffff;
+  --tab-inactive-bg:   #ececec;
+  --scrollbar-bg:      #f1f1f1;
+  --scrollbar-thumb:   #c1c1c1;
+  --sidebar-bg:        #f7f7f7;
+  --status-bg:         #0078d4;
+  --status-fg:         #ffffff;
+}
+
+/* ── Reset & base ────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  color: var(--fg-primary);
+  background: var(--bg-primary);
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+button:hover { background: var(--bg-hover); }
+button:active { background: var(--bg-active); }
+
+/* ── App layout ──────────────────────────────────────────────────────── */
+
+#app {
+  display: grid;
+  grid-template-columns: 240px 4px 1fr;
+  grid-template-rows: 1fr auto;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+
+#sidebar {
+  grid-column: 1;
+  grid-row: 1;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  overflow: hidden;
+  transition: width 0.15s ease;
+}
+#app.sidebar-collapsed { grid-template-columns: 0px 0px 1fr; }
+#app.sidebar-collapsed #sidebar { width: 0; border-right: none; min-width: 0; }
+#app.sidebar-collapsed #sidebar-handle { width: 0; cursor: default; }
+
+/* Show a restore handle when sidebar is collapsed */
+#sidebar-restore {
+  display: none;
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 48px;
+  border-radius: 0 4px 4px 0;
+  background: var(--accent);
+  opacity: 0.5;
+  cursor: pointer;
+  z-index: 30;
+  transition: opacity 0.15s;
+}
+#sidebar-restore:hover { opacity: 1; width: 8px; }
+#app.sidebar-collapsed #sidebar-restore { display: block; }
+
+#sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-width: 200px;
+}
+
+#btn-sidebar-toggle {
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+#sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+/* Sidebar resize handle */
+#sidebar-handle {
+  grid-column: 2;
+  grid-row: 1;
+  cursor: col-resize;
+  z-index: 11;
+  background: transparent;
+}
+#sidebar-handle:hover { background: var(--accent); }
+
+/* ── File tree ───────────────────────────────────────────────────────── */
+
+#file-tree { font-size: 13px; user-select: none; }
+
+.file-tree-entry {
+  display: flex;
+  align-items: center;
+  padding: 3px 8px 3px calc(12px + var(--depth, 0) * 16px);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  gap: 4px;
+}
+.file-tree-entry:hover { background: var(--bg-hover); }
+.file-tree-entry.active { background: var(--bg-active); }
+
+.file-tree-entry .icon { flex-shrink: 0; width: 16px; text-align: center; }
+.file-tree-entry .name { overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Main area ───────────────────────────────────────────────────────── */
+
+#main-area {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────────────── */
+
+#tab-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  height: 35px;
+  overflow: hidden;
+}
+
+#tabs {
+  display: flex;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+#tabs::-webkit-scrollbar { height: 3px; }
+#tabs::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); }
+
+#btn-new-tab {
+  flex-shrink: 0;
+  width: 35px;
+  height: 35px;
+  font-size: 18px;
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--fg-secondary);
+}
+#btn-new-tab:hover { color: var(--fg-primary); background: var(--bg-hover); }
+
+/* Individual tab */
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  background: var(--tab-inactive-bg);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  max-width: 200px;
+}
+.tab:hover { background: var(--bg-hover); }
+.tab.active {
+  color: var(--fg-primary);
+  background: var(--tab-active-bg);
+  border-bottom-color: var(--tab-active-bg);
+}
+
+.tab .tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.tab .tab-dirty {
+  color: var(--warning);
+  font-size: 16px;
+  line-height: 1;
+  display: none;
+}
+.tab.dirty .tab-dirty { display: inline; }
+
+.tab .tab-close {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close { opacity: 0.7; }
+.tab .tab-close:hover { opacity: 1; background: var(--bg-hover); color: var(--danger); }
+
+/* ── Editor container ─────────────────────────────────────────────────┨ */
+
+#editor-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+#editor-pane {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+#editor-pane .CodeMirror {
+  height: 100% !important;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* ── Preview pane ────────────────────────────────────────────────────── */
+
+#preview-pane {
+  width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease;
+  background: var(--bg-primary);
+}
+#preview-pane.visible { width: 45%; min-width: 300px; }
+#preview-pane.hidden { width: 0; min-width: 0; border-left: none; }
+
+#preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--fg-secondary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#btn-close-preview {
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+#preview-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 30px;
+  line-height: 1.7;
+  scroll-behavior: smooth;
+}
+
+/* Preview content styles */
+.markdown-body { font-size: 14px; word-wrap: break-word; }
+.markdown-body h1 { font-size: 1.8em; margin: 0.6em 0 0.3em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
+.markdown-body h2 { font-size: 1.5em; margin: 0.6em 0 0.3em; padding-bottom: 0.25em; border-bottom: 1px solid var(--border-light); }
+.markdown-body h3 { font-size: 1.25em; margin: 0.5em 0 0.2em; }
+.markdown-body h4, .markdown-body h5, .markdown-body h6 { margin: 0.4em 0 0.2em; }
+.markdown-body p { margin: 0.5em 0; }
+.markdown-body a { color: var(--accent); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body ul, .markdown-body ol { padding-left: 2em; margin: 0.4em 0; }
+.markdown-body li { margin: 0.2em 0; }
+.markdown-body blockquote {
+  margin: 0.5em 0;
+  padding: 0.5em 1em;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+}
+.markdown-body code {
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.markdown-body pre {
+  margin: 0.8em 0;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  width: 100%;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+.markdown-body th { background: var(--bg-secondary); font-weight: 600; }
+.markdown-body tr:nth-child(even) { background: var(--bg-secondary); }
+.markdown-body img { max-width: 100%; border-radius: 4px; }
+.markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.markdown-body input[type="checkbox"] { margin-right: 0.5em; }
+
+/* ── Status bar ──────────────────────────────────────────────────────── */
+
+#status-bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  flex-shrink: 0;
+  background: var(--status-bg);
+  color: var(--status-fg);
+  font-size: 11px;
+  padding: 0 8px;
+  gap: 8px;
+  z-index: 20;
+}
+
+[data-theme="light"] #status-bar {
+  background: var(--accent);
+}
+
+#status-bar .status-spacer { flex: 1; }
+#status-bar .status-sep { opacity: 0.5; font-size: 10px; }
+
+#status-file {
+  max-width: 350px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#status-bar button {
+  color: var(--status-fg);
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 2px;
+}
+#status-bar button:hover { background: rgba(255,255,255,0.15); }
+#status-bar button:active { background: rgba(255,255,255,0.25); }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+/* ── CodeMirror theme overrides ──────────────────────────────────────── */
+
+[data-theme="dark"] .CodeMirror {
+  background: var(--bg-primary);
+  color: var(--fg-primary);
+  border: none;
+}
+[data-theme="dark"] .CodeMirror-gutters {
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+}
+[data-theme="dark"] .CodeMirror-linenumber { color: var(--fg-muted); }
+[data-theme="dark"] .CodeMirror-cursor { border-left-color: #aeafad; }
+[data-theme="dark"] .CodeMirror-selected { background: #264f78; }
+[data-theme="dark"] .CodeMirror-activeline-background { background: rgba(255,255,255,0.03); }
+
+[data-theme="light"] .CodeMirror {
+  background: #ffffff;
+  color: #333333;
+}
+[data-theme="light"] .CodeMirror-gutters {
+  background: #f7f7f7;
+  border-right: 1px solid #e0e0e0;
+}
+[data-theme="light"] .CodeMirror-linenumber { color: #999; }
+[data-theme="light"] .CodeMirror-cursor { border-left-color: #333; }
+[data-theme="light"] .CodeMirror-selected { background: #b4d5ff; }
+[data-theme="light"] .CodeMirror-activeline-background { background: rgba(0,0,0,0.02); }
+
+/* ── Dark scrollbar in light mode ─────────────────────────────────────┨ */
+
+[data-theme="light"] ::-webkit-scrollbar-track { background: #f1f1f1; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #c1c1c1; }
+
+/* ── File Picker Modal ───────────────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-overlay.hidden { display: none; }
+
+.modal-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.modal-close {
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.modal-close:hover { background: var(--danger); color: #fff; }
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  min-height: 300px;
+  max-height: 50vh;
+}
+
+#picker-breadcrumb {
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+#picker-breadcrumb .crumb {
+  cursor: pointer;
+  color: var(--accent);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+#picker-breadcrumb .crumb:hover { background: var(--bg-hover); text-decoration: underline; }
+#picker-breadcrumb .crumb-sep { color: var(--fg-muted); cursor: default; }
+
+#picker-file-list { }
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.picker-item:hover { background: var(--bg-hover); }
+.picker-item.selected { background: var(--bg-active); }
+.picker-item .p-icon { width: 20px; text-align: center; flex-shrink: 0; }
+.picker-item .p-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-item .p-size { font-size: 11px; color: var(--fg-muted); flex-shrink: 0; }
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+#picker-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg-input);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+#picker-input:focus { border-color: var(--accent); }
+
+.modal-buttons {
+  display: flex;
+  gap: 6px;
+}
+.modal-buttons button {
+  padding: 6px 16px;
+  font-size: 13px;
+  border-radius: 4px;
+}
+.modal-buttons .btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.modal-buttons .btn-primary:hover { background: var(--accent-hover); }
+
+/* ── Utility ─────────────────────────────────────────────────────────── */
+
+.hidden { display: none !important; }
+"""),
+        "app.js": ("application/javascript; charset=utf-8", """/* ═══════════════════════════════════════════════════════════════════════
+   Notemd — App core
+   Tab manager, CodeMirror editor, Markdown preview, file tree, themes.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+(function () {
+  "use strict";
+
+  // ── Mode map (extension → CodeMirror mode) ──────────────────────────
+
+  const MODE_MAP = {
+    md: "markdown", mdown: "markdown", markdown: "markdown",
+    py: "python", pyw: "python",
+    js: "javascript", mjs: "javascript", cjs: "javascript", ts: "javascript", jsx: "javascript",
+    html: "xml", htm: "xml", xml: "xml", svg: "xml",
+    css: "css", scss: "css", less: "css",
+    sh: "shell", bash: "shell", zsh: "shell",
+    c: "clike", cpp: "clike", h: "clike", hpp: "clike", java: "clike", cs: "clike",
+    yaml: "yaml", yml: "yaml",
+    sql: "sql",
+    dockerfile: "dockerfile",
+    json: "javascript", toml: "toml", ini: "properties", cfg: "properties",
+    txt: null, log: null,
+  };
+
+  const MODE_LABELS = {
+    markdown: "Markdown", python: "Python", javascript: "JavaScript",
+    xml: "HTML/XML", css: "CSS", shell: "Shell", clike: "C/C++/Java",
+    yaml: "YAML", sql: "SQL", dockerfile: "Dockerfile",
+  };
+
+  function getModeForPath(path) {
+    const ext = (path || "").split(".").pop().toLowerCase();
+    return MODE_MAP[ext] || null;
+  }
+
+  function getModeLabel(mode) {
+    if (!mode) return "Plain Text";
+    return MODE_LABELS[mode] || mode.charAt(0).toUpperCase() + mode.slice(1);
+  }
+
+  function getIcon(name, isDir) {
+    if (isDir) return "📁";
+    const ext = (name || "").split(".").pop().toLowerCase();
+    const icons = {
+      md: "📝", markdown: "📝", txt: "📄", log: "📄",
+      py: "🐍", js: "🟨", mjs: "🟨", ts: "🔷", jsx: "⚛️",
+      html: "🌐", htm: "🌐", xml: "📋", svg: "🖼",
+      css: "🎨", scss: "🎨", less: "🎨",
+      json: "📦", yaml: "⚙️", yml: "⚙️", toml: "⚙️",
+      sh: "💻", bash: "💻",
+      c: "⚡", cpp: "⚡", h: "⚡", java: "☕",
+      sql: "🗄", dockerfile: "🐳",
+      png: "🖼", jpg: "🖼", jpeg: "🖼", gif: "🖼", svg: "🖼",
+      zip: "📦", tar: "📦", gz: "📦",
+    };
+    return icons[ext] || "📄";
+  }
+
+  // ── Debounce helper ──────────────────────────────────────────────────
+
+  function debounce(fn, ms) {
+    let timer;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  NotemdApp
+  // ═══════════════════════════════════════════════════════════════════════
+
+  class NotemdApp {
+    constructor() {
+      this.tabs = [];            // { id, title, path, content, dirty, mode }
+      this.activeTabId = null;
+      this.cm = null;            // CodeMirror instance
+      this.cmElement = null;     // DOM element hosting CodeMirror
+      this.previewVisible = false;
+      this.theme = localStorage.getItem("notemd-theme") || "dark";
+      this.tabCounter = 0;
+      this._suppressChange = false;  // flag to skip dirty-mark during programmatic setValue
+      this.init();
+    }
+
+    // ── Bootstrap ────────────────────────────────────────────────────
+
+    init() {
+      this.applyTheme();
+      this.cmElement = document.getElementById("editor-pane");
+      this.initEditor();
+      this.initFileTree();
+      this.bindEvents();
+      this.bindKeyboard();
+      this.newTab();
+    }
+
+    initEditor() {
+      this.cm = CodeMirror(this.cmElement, {
+        value: "",
+        mode: "markdown",
+        theme: this.theme === "dark" ? "material-darker" : "eclipse",
+        lineNumbers: true,
+        lineWrapping: true,
+        foldGutter: true,
+        gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter", "CodeMirror-lint-markers"],
+        autoCloseBrackets: true,
+        matchBrackets: true,
+        styleActiveLine: true,
+        tabSize: 4,
+        indentUnit: 4,
+        indentWithTabs: false,
+        extraKeys: {
+          Tab: (cm) => {
+            if (cm.somethingSelected()) {
+              cm.indentSelection("add");
+            } else {
+              cm.replaceSelection("  ", "end");
+            }
+          },
+          "Shift-Tab": (cm) => {
+            cm.indentSelection("subtract");
+          },
+        },
+      });
+
+      this.cm.on("changes", () => this.onEditorChange());
+      this.cm.on("cursorActivity", () => this.updateStatus());
+    }
+
+    // ── Events ───────────────────────────────────────────────────────
+
+    bindEvents() {
+      // Buttons
+      document.getElementById("btn-new-tab").onclick = () => this.newTab();
+      document.getElementById("btn-save").onclick = () => this.saveTab();
+      document.getElementById("btn-open").onclick = () => this.openFileDialog();
+      document.getElementById("btn-preview").onclick = () => this.togglePreview();
+      document.getElementById("btn-theme").onclick = () => this.toggleTheme();
+      document.getElementById("btn-sidebar-toggle").onclick = () => this.toggleSidebar();
+      document.getElementById("sidebar-restore").onclick = () => this.toggleSidebar();
+      document.getElementById("btn-close-preview").onclick = () => this.hidePreview();
+
+      // Tab clicks (delegation)
+      document.getElementById("tabs").addEventListener("click", (e) => {
+        const tab = e.target.closest(".tab");
+        if (!tab) return;
+        const id = tab.dataset.tabId;
+        if (e.target.closest(".tab-close")) {
+          this.closeTab(id);
+        } else {
+          this.switchTab(id);
+        }
+      });
+
+      // Drag to resize sidebar
+      this.initSidebarResize();
+    }
+
+    bindKeyboard() {
+      document.addEventListener("keydown", (e) => {
+        const mod = e.ctrlKey || e.metaKey;
+
+        if (mod && e.key === "s") {
+          e.preventDefault();
+          this.saveTab();
+        } else if (mod && e.key === "o") {
+          e.preventDefault();
+          this.openFileDialog();
+        } else if (mod && e.key === "n") {
+          e.preventDefault();
+          this.newTab();
+        } else if (mod && e.key === "w") {
+          e.preventDefault();
+          this.closeTab(this.activeTabId);
+        } else if (mod && e.shiftKey && e.key === "P") {
+          e.preventDefault();
+          this.togglePreview();
+        } else if (mod && e.key === "f") {
+          e.preventDefault();
+          this.showSearch();
+        } else if (e.key === "F3") {
+          e.preventDefault();
+          this.findNext(e.shiftKey);
+        } else if (mod && e.key === "h") {
+          e.preventDefault();
+          this.showReplace();
+        } else if (mod && e.key === "b") {
+          e.preventDefault();
+          this.toggleSidebar();
+        }
+      });
+    }
+
+    initSidebarResize() {
+      const handle = document.getElementById("sidebar-handle");
+      const app = document.getElementById("app");
+      let startX, startWidth;
+
+      handle.addEventListener("mousedown", (e) => {
+        if (app.classList.contains("sidebar-collapsed")) return;
+        startX = e.clientX;
+        // Read current sidebar width from the grid
+        const cols = getComputedStyle(app).gridTemplateColumns;
+        startWidth = parseInt(cols.split("px")[0]);
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      });
+
+      const onMove = (e) => {
+        const w = Math.max(120, Math.min(500, startWidth + (e.clientX - startX)));
+        app.style.gridTemplateColumns = w + "px 4px 1fr";
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+    }
+
+    // ── Tab management ────────────────────────────────────────────────
+
+    newTab(title, path, content) {
+      // Save current tab state before switching
+      if (this.activeTabId) this._saveCurrentToTab();
+
+      const id = "tab-" + (++this.tabCounter);
+      const ext = path ? path.split(".").pop().toLowerCase() : "";
+      const mode = path ? getModeForPath(path) : "markdown";
+      const tab = {
+        id,
+        title: title || "untitled",
+        path: path || null,
+        content: content || "",
+        dirty: false,
+        mode: mode,
+      };
+
+      this.tabs.push(tab);
+      this.activeTabId = id;
+      this.renderTabs();
+      this._loadTabIntoEditor(tab);
+      this.updateStatus();
+      this.updatePreview();
+      this.cm.focus();
+    }
+
+    switchTab(id) {
+      if (id === this.activeTabId) return;
+      this._saveCurrentToTab();
+
+      this.activeTabId = id;
+      const tab = this.tabs.find((t) => t.id === id);
+      if (tab) {
+        this._loadTabIntoEditor(tab);
+        this.renderTabs();
+        this.updateStatus();
+        this.updatePreview();
+        this.cm.focus();
+      }
+    }
+
+    closeTab(id, force) {
+      const tab = this.tabs.find((t) => t.id === id);
+      if (!tab) return;
+
+      if (tab.dirty && !force) {
+        if (confirm(`"${tab.title}" has unsaved changes.\\nClose without saving?`)) {
+          this._removeTab(id);
+        }
+      } else {
+        this._removeTab(id);
+      }
+    }
+
+    _removeTab(id) {
+      const idx = this.tabs.findIndex((t) => t.id === id);
+      if (idx === -1) return;
+
+      this.tabs.splice(idx, 1);
+
+      if (this.tabs.length === 0) {
+        this.activeTabId = null;
+        this.cm.setValue("");
+        this.newTab();
+        return;
+      }
+
+      if (this.activeTabId === id) {
+        const next = this.tabs[Math.min(idx, this.tabs.length - 1)];
+        this.activeTabId = next.id;
+        this._loadTabIntoEditor(next);
+      }
+
+      this.renderTabs();
+      this.updateStatus();
+      this.updatePreview();
+      this.cm.focus();
+    }
+
+    _saveCurrentToTab() {
+      if (!this.activeTabId) return;
+      const tab = this.tabs.find((t) => t.id === this.activeTabId);
+      if (!tab) return;
+      tab.content = this.cm.getValue();
+    }
+
+    _loadTabIntoEditor(tab) {
+      this._suppressChange = true;
+      this.cm.setValue(tab.content || "");
+      this._suppressChange = false;
+      this.cm.clearHistory();
+      this._setEditorMode(tab.path);
+      this.cm.scrollTo(0, 0);
+      this.renderTabs();
+      document.title = (tab.dirty ? "● " : "") + tab.title + " — Notemd";
+
+      // Auto-show preview for markdown files, hide for others
+      if (tab.path && /\\.(md|markdown|mdown)$/i.test(tab.path)) {
+        if (!this.previewVisible) this.showPreview();
+      }
+    }
+
+    _setEditorMode(path) {
+      const mode = getModeForPath(path);
+      if (mode) {
+        this.cm.setOption("mode", mode);
+      } else {
+        this.cm.setOption("mode", "null");
+      }
+      document.getElementById("status-mode").textContent = getModeLabel(mode);
+    }
+
+    onEditorChange() {
+      if (this._suppressChange) return;
+      if (!this.activeTabId) return;
+      const tab = this.tabs.find((t) => t.id === this.activeTabId);
+      if (!tab) return;
+
+      const content = this.cm.getValue();
+      if (content !== tab.content) {
+        tab.dirty = true;
+        tab.content = content;
+        this.renderTabs();
+        this.updateStatus();
+        document.title = "● " + tab.title + " — Notemd";
+      }
+
+      this.debouncedPreview();
+    }
+
+    markClean() {
+      const tab = this.tabs.find((t) => t.id === this.activeTabId);
+      if (tab) {
+        tab.dirty = false;
+        tab.content = this.cm.getValue();
+        this.renderTabs();
+        document.title = tab.title + " — Notemd";
+      }
+    }
+
+    // ── Tabs UI ──────────────────────────────────────────────────────
+
+    renderTabs() {
+      const container = document.getElementById("tabs");
+      container.innerHTML = "";
+      this.tabs.forEach((tab) => {
+        const el = document.createElement("div");
+        el.className = "tab" + (tab.id === this.activeTabId ? " active" : "") + (tab.dirty ? " dirty" : "");
+        el.dataset.tabId = tab.id;
+        el.title = tab.path || tab.title;
+        el.innerHTML = `
+          <span class="tab-title">${this._esc(tab.title)}</span>
+          <span class="tab-dirty">●</span>
+          <span class="tab-close">&times;</span>
+        `;
+        container.appendChild(el);
+      });
+
+      // Scroll active tab into view
+      const active = container.querySelector(".tab.active");
+      if (active) active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+
+    // ── File operations ──────────────────────────────────────────────
+
+    async saveTab() {
+      const tab = this.tabs.find((t) => t.id === this.activeTabId);
+      if (!tab) return;
+
+      const content = this.cm.getValue();
+
+      if (tab.path) {
+        // Save to existing path
+        try {
+          const res = await fetch("/api/write", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: tab.path, content }),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            tab.content = content;
+            this.markClean();
+            this.updateStatus();
+          } else {
+            alert("Save failed: " + (data.error || "Unknown error"));
+          }
+        } catch (err) {
+          alert("Save failed: " + err.message);
+        }
+      } else {
+        // Save as — prompt for path
+        this.saveTabAs();
+      }
+    }
+
+    saveTabAs() {
+      const path = prompt("Save as (full path):", "/home/admin/");
+      if (!path) return;
+
+      const content = this.cm.getValue();
+      fetch("/api/save-as", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, content }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok) {
+            const tab = this.tabs.find((t) => t.id === this.activeTabId);
+            if (tab) {
+              tab.path = data.path;
+              tab.title = data.path.split("/").pop();
+              tab.content = content;
+              this._setEditorMode(data.path);
+              this.markClean();
+              this.updateStatus();
+              this.updatePreview();
+            }
+          } else {
+            alert("Save failed: " + (data.error || "Unknown error"));
+          }
+        })
+        .catch((err) => alert("Save failed: " + err.message));
+    }
+
+    openFileDialog() {
+      this.showFilePicker();
+    }
+
+    // ── File Picker Modal ──────────────────────────────────────────────
+
+    showFilePicker() {
+      const overlay = document.getElementById("file-picker-overlay");
+      overlay.classList.remove("hidden");
+      document.getElementById("picker-input").value = "";
+      this._pickerSelected = null;
+      this._pickerDir = null;
+      // Start from home directory (stored from init)
+      const homeDir = this._homeDir || "/home/admin";
+      this._loadPickerDir(homeDir);
+      document.getElementById("picker-input").focus();
+
+      // Close handlers
+      const close = () => overlay.classList.add("hidden");
+      document.getElementById("btn-picker-close").onclick = close;
+      document.getElementById("btn-picker-cancel").onclick = close;
+      overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+      // Open button
+      document.getElementById("btn-picker-open").onclick = () => {
+        const input = document.getElementById("picker-input").value.trim();
+        const target = input || this._pickerSelected;
+        if (target) {
+          close();
+          this.loadFile(target);
+        }
+      };
+
+      // Keyboard: Enter to open selected or typed path, Escape to close
+      const input = document.getElementById("picker-input");
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const val = input.value.trim();
+          if (val) {
+            this._pickerSelected = val;
+          }
+          if (this._pickerSelected) {
+            close();
+            this.loadFile(this._pickerSelected);
+          }
+        } else if (e.key === "Escape") {
+          e.stopPropagation();
+          close();
+        }
+      };
+
+      // Global Escape
+      const onKey = (e) => {
+        if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
+      };
+      document.addEventListener("keydown", onKey);
+    }
+
+    async _loadPickerDir(dirPath) {
+      this._pickerDir = dirPath;
+      const list = document.getElementById("picker-file-list");
+      const bread = document.getElementById("picker-breadcrumb");
+      list.innerHTML = '<div class="picker-item"><span class="p-icon">⏳</span> Loading...</div>';
+
+      // Breadcrumb
+      const parts = dirPath.split("/").filter(Boolean);
+      let cum = "";
+      bread.innerHTML = '<span class="crumb" data-path="/">🏠</span>';
+      parts.forEach((p, i) => {
+        cum += "/" + p;
+        bread.innerHTML += '<span class="crumb-sep">▸</span>';
+        bread.innerHTML += `<span class="crumb" data-path="${this._esc(cum)}">${this._esc(p)}</span>`;
+      });
+      bread.querySelectorAll(".crumb").forEach((c) => {
+        c.onclick = () => this._loadPickerDir(c.dataset.path);
+      });
+
+      try {
+        const res = await fetch("/api/files?dir=" + encodeURIComponent(dirPath));
+        const data = await res.json();
+        if (data.error) {
+          list.innerHTML = `<div class="picker-item">❌ ${this._esc(data.error)}</div>`;
+          return;
+        }
+        list.innerHTML = "";
+        data.items.forEach((item) => {
+          const el = document.createElement("div");
+          el.className = "picker-item";
+          const icon = item.isDir ? "📁" : this._getFileIcon(item.name);
+          const size = item.isDir ? "" : this._formatSize(item.size);
+          el.innerHTML = `<span class="p-icon">${icon}</span><span class="p-name">${this._esc(item.name)}</span><span class="p-size">${size}</span>`;
+          el.onclick = () => {
+            if (item.isDir) {
+              this._loadPickerDir(item.path);
+            } else {
+              // Select file
+              list.querySelectorAll(".picker-item").forEach((e) => e.classList.remove("selected"));
+              el.classList.add("selected");
+              this._pickerSelected = item.path;
+              document.getElementById("picker-input").value = item.path;
+            }
+          };
+          // Double-click to open immediately
+          el.ondblclick = () => {
+            if (!item.isDir) {
+              document.getElementById("file-picker-overlay").classList.add("hidden");
+              this.loadFile(item.path);
+            }
+          };
+          list.appendChild(el);
+        });
+      } catch (err) {
+        list.innerHTML = `<div class="picker-item">❌ ${this._esc(err.message)}</div>`;
+      }
+    }
+
+    _getFileIcon(name) {
+      const ext = (name || "").split(".").pop().toLowerCase();
+      const icons = { md: "📝", py: "🐍", js: "🟨", html: "🌐", css: "🎨", json: "📦", sh: "💻", yml: "⚙️", sql: "🗄", txt: "📄" };
+      return icons[ext] || "📄";
+    }
+
+    _formatSize(bytes) {
+      if (!bytes) return "";
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / 1048576).toFixed(1) + " MB";
+    }
+
+    async loadFile(path) {
+      try {
+        const res = await fetch("/api/read?file=" + encodeURIComponent(path));
+        const data = await res.json();
+        if (data.error) {
+          alert("Cannot open: " + data.error);
+          return;
+        }
+        const title = path.split("/").pop();
+        // Check if file already open
+        const existing = this.tabs.find((t) => t.path === path);
+        if (existing) {
+          existing.content = data.content;
+          existing.dirty = false;
+          this.switchTab(existing.id);
+          this._loadTabIntoEditor(existing);
+          return;
+        }
+        this.newTab(title, path, data.content);
+      } catch (err) {
+        alert("Cannot open: " + err.message);
+      }
+    }
+
+    // ── Preview ──────────────────────────────────────────────────────
+
+    togglePreview() {
+      if (this.previewVisible) {
+        this.hidePreview();
+      } else {
+        this.showPreview();
+      }
+    }
+
+    showPreview() {
+      this.previewVisible = true;
+      const pane = document.getElementById("preview-pane");
+      pane.classList.remove("hidden");
+      pane.classList.add("visible");
+      document.getElementById("btn-preview").textContent = "👁 Hide Preview";
+      this.updatePreview();
+    }
+
+    hidePreview() {
+      this.previewVisible = false;
+      const pane = document.getElementById("preview-pane");
+      pane.classList.remove("visible");
+      pane.classList.add("hidden");
+      document.getElementById("btn-preview").textContent = "👁 Preview";
+    }
+
+    updatePreview() {
+      if (!this.previewVisible) return;
+      const content = this.cm.getValue();
+      if (!content.trim()) {
+        document.getElementById("preview-content").innerHTML = "";
+        return;
+      }
+
+      // Use server-side rendering (Python markdown + Pygments)
+      fetch("/api/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.html) {
+            document.getElementById("preview-content").innerHTML = data.html;
+          } else if (data.error) {
+            document.getElementById("preview-content").innerHTML =
+              '<p style="color:var(--danger)">Render error: ' +
+              this._esc(data.error) + "</p>";
+          }
+        })
+        .catch((err) => {
+          document.getElementById("preview-content").innerHTML =
+            '<p style="color:var(--danger)">Render request failed: ' +
+            this._esc(err.message) + "</p>";
+        });
+    }
+
+    debouncedPreview() {
+      if (!this._debouncePv) {
+        this._debouncePv = debounce(() => this.updatePreview(), 400);
+      }
+      this._debouncePv();
+    }
+
+    // ── Search ───────────────────────────────────────────────────────
+
+    showSearch() {
+      if (this.cm && typeof CodeMirror.commands.find === "function") {
+        CodeMirror.commands.find(this.cm);
+        // Focus the search input so Enter works immediately
+        setTimeout(() => {
+          const input = document.querySelector(".CodeMirror-dialog input");
+          if (input) input.focus();
+        }, 50);
+      }
+    }
+
+    showReplace() {
+      if (this.cm && typeof CodeMirror.commands.replace === "function") {
+        CodeMirror.commands.replace(this.cm);
+        setTimeout(() => {
+          const input = document.querySelector(".CodeMirror-dialog input");
+          if (input) input.focus();
+        }, 50);
+      }
+    }
+
+    findNext(backward) {
+      if (!this.cm) return;
+      if (backward) {
+        if (typeof CodeMirror.commands.findPrev === "function") {
+          CodeMirror.commands.findPrev(this.cm);
+        }
+      } else {
+        if (typeof CodeMirror.commands.findNext === "function") {
+          CodeMirror.commands.findNext(this.cm);
+        }
+      }
+    }
+
+    // ── File tree ────────────────────────────────────────────────────
+
+    async initFileTree() {
+      try {
+        const res = await fetch("/api/home");
+        const data = await res.json();
+        this._homeDir = data.home;
+        this.loadDirectory(data.home);
+      } catch (err) {
+        console.error("File tree init error:", err);
+      }
+    }
+
+    async loadDirectory(dirPath) {
+      const tree = document.getElementById("file-tree");
+      tree.innerHTML = '<div class="file-tree-entry"><span class="icon">⏳</span> Loading...</div>';
+
+      try {
+        const res = await fetch("/api/files?dir=" + encodeURIComponent(dirPath));
+        const data = await res.json();
+        if (data.error) {
+          tree.innerHTML = '<div class="file-tree-entry">❌ ' + this._esc(data.error) + "</div>";
+          return;
+        }
+        this.renderTree(data.items, tree, dirPath, 0);
+      } catch (err) {
+        tree.innerHTML = '<div class="file-tree-entry">❌ ' + this._esc(err.message) + "</div>";
+      }
+    }
+
+    renderTree(items, parent, parentPath, depth) {
+      parent.innerHTML = "";
+
+      // Parent directory link (if not root)
+      if (depth === 0 && parentPath) {
+        const upPath = parentPath.split("/").slice(0, -1).join("/") || "/";
+        // Go up one level
+        const pp = parentPath.substring(0, parentPath.lastIndexOf("/")) || "/home/admin";
+        const up = document.createElement("div");
+        up.className = "file-tree-entry";
+        up.style.setProperty("--depth", 0);
+        up.innerHTML = '<span class="icon">📂</span> <span class="name" style="color:var(--fg-muted)">..</span>';
+        up.onclick = () => this.loadDirectory(pp);
+        parent.appendChild(up);
+      }
+
+      items.forEach((item) => {
+        const el = document.createElement("div");
+        el.className = "file-tree-entry";
+        el.style.setProperty("--depth", depth);
+        el.innerHTML = `<span class="icon">${getIcon(item.name, item.isDir)}</span> <span class="name">${this._esc(item.name)}</span>`;
+        el.title = item.path;
+
+        if (item.isDir) {
+          el.onclick = () => this.loadDirectory(item.path);
+        } else {
+          el.onclick = () => this.loadFile(item.path);
+          // Highlight if this file is currently open
+          const openTab = this.tabs.find((t) => t.path === item.path);
+          if (openTab) el.classList.add("active");
+        }
+
+        parent.appendChild(el);
+      });
+    }
+
+    // ── Theme ────────────────────────────────────────────────────────
+
+    toggleTheme() {
+      this.theme = this.theme === "dark" ? "light" : "dark";
+      localStorage.setItem("notemd-theme", this.theme);
+      this.applyTheme();
+    }
+
+    applyTheme() {
+      document.documentElement.setAttribute("data-theme", this.theme);
+      document.getElementById("btn-theme").textContent =
+        this.theme === "dark" ? "☀️" : "🌙";
+      // Switch Pygments (code highlight) theme
+      const pygmentsCSS = document.getElementById("pygments-theme");
+      if (pygmentsCSS) {
+        pygmentsCSS.href = this.theme === "dark"
+          ? "pygments-dark.css"
+          : "pygments-light.css";
+      }
+      // Switch CodeMirror theme
+      if (this.cm) {
+        this.cm.setOption("theme", this.theme === "dark" ? "material-darker" : "eclipse");
+      }
+    }
+
+    // ── Sidebar ──────────────────────────────────────────────────────
+
+    toggleSidebar() {
+      const app = document.getElementById("app");
+      app.classList.toggle("sidebar-collapsed");
+      const collapsed = app.classList.contains("sidebar-collapsed");
+      document.getElementById("btn-sidebar-toggle").textContent = collapsed ? "▶" : "◀";
+    }
+
+    // ── Status bar ───────────────────────────────────────────────────
+
+    updateStatus() {
+      if (!this.cm) return;
+      const cursor = this.cm.getCursor();
+      const tab = this.tabs.find((t) => t.id === this.activeTabId);
+
+      document.getElementById("status-position").textContent =
+        "Ln " + (cursor.line + 1) + ", Col " + (cursor.ch + 1);
+
+      const content = this.cm.getValue();
+      const words = content.trim() ? content.trim().split(/\\s+/).length : 0;
+      document.getElementById("status-words").textContent = words + " words";
+
+      if (tab) {
+        document.getElementById("status-file").textContent = tab.path || "untitled";
+        document.getElementById("status-mode").textContent = getModeLabel(tab.mode);
+      }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    _esc(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+  }
+
+  // ── Boot ───────────────────────────────────────────────────────────
+
+  document.addEventListener("DOMContentLoaded", () => {
+    window.notemd = new NotemdApp();
+  });
+})();
+"""),
+        "pygments-dark.css": ("text/css; charset=utf-8", """/* Pygments monokai (dark) — auto-generated */
+.markdown-body .codehilite pre { line-height: 125%; }
+.markdown-body .codehilite td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite .hll { background-color: #49483e }
+.markdown-body .codehilite { background: #272822; color: #F8F8F2 }
+.markdown-body .codehilite .c { color: #959077 } /* Comment */
+.markdown-body .codehilite .err { color: #ED007E; background-color: #1E0010 } /* Error */
+.markdown-body .codehilite .esc { color: #F8F8F2 } /* Escape */
+.markdown-body .codehilite .g { color: #F8F8F2 } /* Generic */
+.markdown-body .codehilite .k { color: #66D9EF } /* Keyword */
+.markdown-body .codehilite .l { color: #AE81FF } /* Literal */
+.markdown-body .codehilite .n { color: #F8F8F2 } /* Name */
+.markdown-body .codehilite .o { color: #FF4689 } /* Operator */
+.markdown-body .codehilite .x { color: #F8F8F2 } /* Other */
+.markdown-body .codehilite .p { color: #F8F8F2 } /* Punctuation */
+.markdown-body .codehilite .ch { color: #959077 } /* Comment.Hashbang */
+.markdown-body .codehilite .cm { color: #959077 } /* Comment.Multiline */
+.markdown-body .codehilite .cp { color: #959077 } /* Comment.Preproc */
+.markdown-body .codehilite .cpf { color: #959077 } /* Comment.PreprocFile */
+.markdown-body .codehilite .c1 { color: #959077 } /* Comment.Single */
+.markdown-body .codehilite .cs { color: #959077 } /* Comment.Special */
+.markdown-body .codehilite .gd { color: #FF4689 } /* Generic.Deleted */
+.markdown-body .codehilite .ge { color: #F8F8F2; font-style: italic } /* Generic.Emph */
+.markdown-body .codehilite .ges { color: #F8F8F2; font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.markdown-body .codehilite .gr { color: #F8F8F2 } /* Generic.Error */
+.markdown-body .codehilite .gh { color: #F8F8F2 } /* Generic.Heading */
+.markdown-body .codehilite .gi { color: #A6E22E } /* Generic.Inserted */
+.markdown-body .codehilite .go { color: #66D9EF } /* Generic.Output */
+.markdown-body .codehilite .gp { color: #FF4689; font-weight: bold } /* Generic.Prompt */
+.markdown-body .codehilite .gs { color: #F8F8F2; font-weight: bold } /* Generic.Strong */
+.markdown-body .codehilite .gu { color: #959077 } /* Generic.Subheading */
+.markdown-body .codehilite .gt { color: #F8F8F2 } /* Generic.Traceback */
+.markdown-body .codehilite .kc { color: #66D9EF } /* Keyword.Constant */
+.markdown-body .codehilite .kd { color: #66D9EF } /* Keyword.Declaration */
+.markdown-body .codehilite .kn { color: #FF4689 } /* Keyword.Namespace */
+.markdown-body .codehilite .kp { color: #66D9EF } /* Keyword.Pseudo */
+.markdown-body .codehilite .kr { color: #66D9EF } /* Keyword.Reserved */
+.markdown-body .codehilite .kt { color: #66D9EF } /* Keyword.Type */
+.markdown-body .codehilite .ld { color: #E6DB74 } /* Literal.Date */
+.markdown-body .codehilite .m { color: #AE81FF } /* Literal.Number */
+.markdown-body .codehilite .s { color: #E6DB74 } /* Literal.String */
+.markdown-body .codehilite .na { color: #A6E22E } /* Name.Attribute */
+.markdown-body .codehilite .nb { color: #F8F8F2 } /* Name.Builtin */
+.markdown-body .codehilite .nc { color: #A6E22E } /* Name.Class */
+.markdown-body .codehilite .no { color: #66D9EF } /* Name.Constant */
+.markdown-body .codehilite .nd { color: #A6E22E } /* Name.Decorator */
+.markdown-body .codehilite .ni { color: #F8F8F2 } /* Name.Entity */
+.markdown-body .codehilite .ne { color: #A6E22E } /* Name.Exception */
+.markdown-body .codehilite .nf { color: #A6E22E } /* Name.Function */
+.markdown-body .codehilite .nl { color: #F8F8F2 } /* Name.Label */
+.markdown-body .codehilite .nn { color: #F8F8F2 } /* Name.Namespace */
+.markdown-body .codehilite .nx { color: #A6E22E } /* Name.Other */
+.markdown-body .codehilite .py { color: #F8F8F2 } /* Name.Property */
+.markdown-body .codehilite .nt { color: #FF4689 } /* Name.Tag */
+.markdown-body .codehilite .nv { color: #F8F8F2 } /* Name.Variable */
+.markdown-body .codehilite .ow { color: #FF4689 } /* Operator.Word */
+.markdown-body .codehilite .pm { color: #F8F8F2 } /* Punctuation.Marker */
+.markdown-body .codehilite .w { color: #F8F8F2 } /* Text.Whitespace */
+.markdown-body .codehilite .mb { color: #AE81FF } /* Literal.Number.Bin */
+.markdown-body .codehilite .mf { color: #AE81FF } /* Literal.Number.Float */
+.markdown-body .codehilite .mh { color: #AE81FF } /* Literal.Number.Hex */
+.markdown-body .codehilite .mi { color: #AE81FF } /* Literal.Number.Integer */
+.markdown-body .codehilite .mo { color: #AE81FF } /* Literal.Number.Oct */
+.markdown-body .codehilite .sa { color: #E6DB74 } /* Literal.String.Affix */
+.markdown-body .codehilite .sb { color: #E6DB74 } /* Literal.String.Backtick */
+.markdown-body .codehilite .sc { color: #E6DB74 } /* Literal.String.Char */
+.markdown-body .codehilite .dl { color: #E6DB74 } /* Literal.String.Delimiter */
+.markdown-body .codehilite .sd { color: #E6DB74 } /* Literal.String.Doc */
+.markdown-body .codehilite .s2 { color: #E6DB74 } /* Literal.String.Double */
+.markdown-body .codehilite .se { color: #AE81FF } /* Literal.String.Escape */
+.markdown-body .codehilite .sh { color: #E6DB74 } /* Literal.String.Heredoc */
+.markdown-body .codehilite .si { color: #E6DB74 } /* Literal.String.Interpol */
+.markdown-body .codehilite .sx { color: #E6DB74 } /* Literal.String.Other */
+.markdown-body .codehilite .sr { color: #E6DB74 } /* Literal.String.Regex */
+.markdown-body .codehilite .s1 { color: #E6DB74 } /* Literal.String.Single */
+.markdown-body .codehilite .ss { color: #E6DB74 } /* Literal.String.Symbol */
+.markdown-body .codehilite .bp { color: #F8F8F2 } /* Name.Builtin.Pseudo */
+.markdown-body .codehilite .fm { color: #A6E22E } /* Name.Function.Magic */
+.markdown-body .codehilite .vc { color: #F8F8F2 } /* Name.Variable.Class */
+.markdown-body .codehilite .vg { color: #F8F8F2 } /* Name.Variable.Global */
+.markdown-body .codehilite .vi { color: #F8F8F2 } /* Name.Variable.Instance */
+.markdown-body .codehilite .vm { color: #F8F8F2 } /* Name.Variable.Magic */
+.markdown-body .codehilite .il { color: #AE81FF } /* Literal.Number.Integer.Long */
+"""),
+        "pygments-light.css": ("text/css; charset=utf-8", """/* Pygments default (light) — auto-generated */
+.markdown-body .codehilite pre { line-height: 125%; }
+.markdown-body .codehilite td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite span.linenos { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite td.linenos .special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 5px; padding-right: 5px; }
+.markdown-body .codehilite .hll { background-color: #ffffcc }
+.markdown-body .codehilite { background: #f8f8f8; }
+.markdown-body .codehilite .c { color: #3D7B7B; font-style: italic } /* Comment */
+.markdown-body .codehilite .err { border: 1px solid #F00 } /* Error */
+.markdown-body .codehilite .k { color: #008000; font-weight: bold } /* Keyword */
+.markdown-body .codehilite .o { color: #666 } /* Operator */
+.markdown-body .codehilite .ch { color: #3D7B7B; font-style: italic } /* Comment.Hashbang */
+.markdown-body .codehilite .cm { color: #3D7B7B; font-style: italic } /* Comment.Multiline */
+.markdown-body .codehilite .cp { color: #9C6500 } /* Comment.Preproc */
+.markdown-body .codehilite .cpf { color: #3D7B7B; font-style: italic } /* Comment.PreprocFile */
+.markdown-body .codehilite .c1 { color: #3D7B7B; font-style: italic } /* Comment.Single */
+.markdown-body .codehilite .cs { color: #3D7B7B; font-style: italic } /* Comment.Special */
+.markdown-body .codehilite .gd { color: #A00000 } /* Generic.Deleted */
+.markdown-body .codehilite .ge { font-style: italic } /* Generic.Emph */
+.markdown-body .codehilite .ges { font-weight: bold; font-style: italic } /* Generic.EmphStrong */
+.markdown-body .codehilite .gr { color: #E40000 } /* Generic.Error */
+.markdown-body .codehilite .gh { color: #000080; font-weight: bold } /* Generic.Heading */
+.markdown-body .codehilite .gi { color: #008400 } /* Generic.Inserted */
+.markdown-body .codehilite .go { color: #717171 } /* Generic.Output */
+.markdown-body .codehilite .gp { color: #000080; font-weight: bold } /* Generic.Prompt */
+.markdown-body .codehilite .gs { font-weight: bold } /* Generic.Strong */
+.markdown-body .codehilite .gu { color: #800080; font-weight: bold } /* Generic.Subheading */
+.markdown-body .codehilite .gt { color: #04D } /* Generic.Traceback */
+.markdown-body .codehilite .kc { color: #008000; font-weight: bold } /* Keyword.Constant */
+.markdown-body .codehilite .kd { color: #008000; font-weight: bold } /* Keyword.Declaration */
+.markdown-body .codehilite .kn { color: #008000; font-weight: bold } /* Keyword.Namespace */
+.markdown-body .codehilite .kp { color: #008000 } /* Keyword.Pseudo */
+.markdown-body .codehilite .kr { color: #008000; font-weight: bold } /* Keyword.Reserved */
+.markdown-body .codehilite .kt { color: #B00040 } /* Keyword.Type */
+.markdown-body .codehilite .m { color: #666 } /* Literal.Number */
+.markdown-body .codehilite .s { color: #BA2121 } /* Literal.String */
+.markdown-body .codehilite .na { color: #687822 } /* Name.Attribute */
+.markdown-body .codehilite .nb { color: #008000 } /* Name.Builtin */
+.markdown-body .codehilite .nc { color: #00F; font-weight: bold } /* Name.Class */
+.markdown-body .codehilite .no { color: #800 } /* Name.Constant */
+.markdown-body .codehilite .nd { color: #A2F } /* Name.Decorator */
+.markdown-body .codehilite .ni { color: #717171; font-weight: bold } /* Name.Entity */
+.markdown-body .codehilite .ne { color: #CB3F38; font-weight: bold } /* Name.Exception */
+.markdown-body .codehilite .nf { color: #00F } /* Name.Function */
+.markdown-body .codehilite .nl { color: #767600 } /* Name.Label */
+.markdown-body .codehilite .nn { color: #00F; font-weight: bold } /* Name.Namespace */
+.markdown-body .codehilite .nt { color: #008000; font-weight: bold } /* Name.Tag */
+.markdown-body .codehilite .nv { color: #19177C } /* Name.Variable */
+.markdown-body .codehilite .ow { color: #A2F; font-weight: bold } /* Operator.Word */
+.markdown-body .codehilite .w { color: #BBB } /* Text.Whitespace */
+.markdown-body .codehilite .mb { color: #666 } /* Literal.Number.Bin */
+.markdown-body .codehilite .mf { color: #666 } /* Literal.Number.Float */
+.markdown-body .codehilite .mh { color: #666 } /* Literal.Number.Hex */
+.markdown-body .codehilite .mi { color: #666 } /* Literal.Number.Integer */
+.markdown-body .codehilite .mo { color: #666 } /* Literal.Number.Oct */
+.markdown-body .codehilite .sa { color: #BA2121 } /* Literal.String.Affix */
+.markdown-body .codehilite .sb { color: #BA2121 } /* Literal.String.Backtick */
+.markdown-body .codehilite .sc { color: #BA2121 } /* Literal.String.Char */
+.markdown-body .codehilite .dl { color: #BA2121 } /* Literal.String.Delimiter */
+.markdown-body .codehilite .sd { color: #BA2121; font-style: italic } /* Literal.String.Doc */
+.markdown-body .codehilite .s2 { color: #BA2121 } /* Literal.String.Double */
+.markdown-body .codehilite .se { color: #AA5D1F; font-weight: bold } /* Literal.String.Escape */
+.markdown-body .codehilite .sh { color: #BA2121 } /* Literal.String.Heredoc */
+.markdown-body .codehilite .si { color: #A45A77; font-weight: bold } /* Literal.String.Interpol */
+.markdown-body .codehilite .sx { color: #008000 } /* Literal.String.Other */
+.markdown-body .codehilite .sr { color: #A45A77 } /* Literal.String.Regex */
+.markdown-body .codehilite .s1 { color: #BA2121 } /* Literal.String.Single */
+.markdown-body .codehilite .ss { color: #19177C } /* Literal.String.Symbol */
+.markdown-body .codehilite .bp { color: #008000 } /* Name.Builtin.Pseudo */
+.markdown-body .codehilite .fm { color: #00F } /* Name.Function.Magic */
+.markdown-body .codehilite .vc { color: #19177C } /* Name.Variable.Class */
+.markdown-body .codehilite .vg { color: #19177C } /* Name.Variable.Global */
+.markdown-body .codehilite .vi { color: #19177C } /* Name.Variable.Instance */
+.markdown-body .codehilite .vm { color: #19177C } /* Name.Variable.Magic */
+.markdown-body .codehilite .il { color: #666 } /* Literal.Number.Integer.Long */
+"""),
+    }
+    # If app/ directory exists, prefer disk versions (for development)
+    if APP_DIR.is_dir():
+        for filename, ct in [
+            ("index.html", "text/html; charset=utf-8"),
+            ("style.css", "text/css; charset=utf-8"),
+            ("app.js", "application/javascript; charset=utf-8"),
+            ("pygments-dark.css", "text/css; charset=utf-8"),
+            ("pygments-light.css", "text/css; charset=utf-8"),
+        ]:
+            path = APP_DIR / filename
+            if path.exists():
+                _EMBEDDED[filename] = (ct, path.read_text(encoding="utf-8"))
+
+
+# ── HTTP Handler (same API as server.py, but self-contained) ───────────
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            if parsed.path.startswith("/api/"):
+                self._api_get(parsed)
+            else:
+                self._serve_embedded(parsed.path)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            if parsed.path.startswith("/api/"):
+                self._api_post(parsed)
+            else:
+                self.send_error(404)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def do_OPTIONS(self):
+        self._cors()
+        self.send_response(204)
+        self.end_headers()
+
+    # ── Static serving (from memory) ──────────────────────────────────
+
+    def _serve_embedded(self, path):
+        if path == "/":
+            path = "/index.html"
+        key = path.lstrip("/")
+        if key not in _EMBEDDED:
+            self.send_error(404)
+            return
+        ct, body = _EMBEDDED[key]
+        data = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
+
+    # ── API ───────────────────────────────────────────────────────────
+
+    def _api_get(self, parsed):
+        params = dict(urllib.parse.parse_qsl(parsed.query))
+        if parsed.path == "/api/files":
+            self._list(params.get("dir", str(Path.home())))
+        elif parsed.path == "/api/read":
+            self._read(params.get("file", ""))
+        elif parsed.path == "/api/home":
+            self._json({"home": str(Path.home())})
+        else:
+            self.send_error(404)
+
+    def _api_post(self, parsed):
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length)) if length > 0 else {}
+        if parsed.path == "/api/write":
+            self._write(body)
+        elif parsed.path == "/api/save-as":
+            self._write(body, is_new=True)
+        elif parsed.path == "/api/render":
+            self._render(body)
+        else:
+            self.send_error(404)
+
+    def _list(self, dir_path):
+        p, err = self._safe(dir_path)
+        if err: return self._json({"error": err}, 403)
+        if not p.is_dir(): return self._json({"error": "Not a directory"}, 400)
+        items = []
+        try:
+            for e in sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                if e.name.startswith("."): continue
+                st = e.stat()
+                items.append({"name": e.name, "path": str(e), "isDir": e.is_dir(),
+                              "size": st.st_size, "mtime": int(st.st_mtime)})
+        except PermissionError:
+            return self._json({"error": "Permission denied"}, 403)
+        self._json({"items": items, "path": str(p)})
+
+    def _read(self, path):
+        p, err = self._safe(path)
+        if err: return self._json({"error": err}, 403)
+        if p.is_dir(): return self._json({"error": "Is a directory"}, 400)
+        if p.stat().st_size > MAX_FILE_SIZE: return self._json({"error": "Too large"}, 413)
+        try:
+            self._json({"content": p.read_text("utf-8"), "path": str(p), "size": p.stat().st_size})
+        except UnicodeDecodeError:
+            return self._json({"error": "Binary file"}, 415)
+        except PermissionError:
+            return self._json({"error": "Permission denied"}, 403)
+
+    def _write(self, body, is_new=False):
+        p, err = self._safe(body.get("path", ""))
+        if err: return self._json({"error": err}, 403)
+        if p.is_dir(): return self._json({"error": "Is a directory"}, 400)
+        if not is_new and not p.exists(): return self._json({"error": "Not found"}, 404)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body.get("content", ""), "utf-8")
+            self._json({"ok": True, "path": str(p)})
+        except PermissionError:
+            return self._json({"error": "Permission denied"}, 403)
+        except OSError as e:
+            return self._json({"error": str(e)}, 500)
+
+    def _render(self, body):
+        content = body.get("content", "")
+        if not content: return self._json({"html": ""})
+        try:
+            import markdown as md
+            html = md.markdown(content, extensions=["fenced_code", "tables", "codehilite", "nl2br", "sane_lists"])
+            self._json({"html": html})
+        except ImportError:
+            self._json({"error": "markdown library not available"}, 501)
+
+    # ── Helpers ───────────────────────────────────────────────────────
+
+    def _safe(self, path_str):
+        p = Path(path_str).expanduser().resolve()
+        try:
+            p.relative_to(Path.home())
+        except ValueError:
+            return None, "Access denied"
+        return p, None
+
+    def _json(self, data, status=200):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def log_message(self, fmt, *args):
+        pass  # silent
+
+
+# ── Server runner ────────────────────────────────────────────────────────
+
+def _run_server():
+    server = HTTPServer(("127.0.0.1", PORT), Handler)
+    server.serve_forever()
+
+
+# ── Entry points ─────────────────────────────────────────────────────────
+
+def run_desktop():
+    """Open in a native desktop window via pywebview."""
+    try:
+        import webview
+    except ImportError:
+        print("[!] pywebview not installed. Run: pip install pywebview")
+        print("[!] Using browser fallback...")
+        return run_browser()
+
+    threading.Thread(target=_run_server, daemon=True).start()
+    webview.create_window(
+        title="Notemd — Markdown Editor",
+        url=f"http://127.0.0.1:{PORT}",
+        width=1280,
+        height=800,
+        min_size=(800, 500),
+    )
+    webview.start()
+
+
+def run_browser():
+    """Open in the default web browser."""
+    threading.Thread(target=_run_server, daemon=True).start()
+    url = f"http://127.0.0.1:{PORT}"
+    print(f"  → {url}")
+    webbrowser.open(url)
+    print("  Press Ctrl+C to stop.")
+    try:
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("  Bye!")
+
+
+# ── Main ─────────────────────────────────────────────────────────────────
+
+def main():
+    global PORT
+    args = sys.argv[1:]
+
+    if "--port" in args:
+        PORT = int(args[args.index("--port") + 1])
+
+    # Load frontend into memory
+    _load_embedded()
+    print(f"  Notemd Desktop  v0.2.0")
+    print(f"  → http://127.0.0.1:{PORT}")
+
+    if "--browser" in args:
+        run_browser()
+    else:
+        try:
+            run_desktop()
+        except Exception:
+            run_browser()
+
+
+if __name__ == "__main__":
+    main()
