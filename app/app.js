@@ -151,35 +151,18 @@
     }
 
     bindKeyboard() {
-      document.addEventListener("keydown", (e) => {
-        const mod = e.ctrlKey || e.metaKey;
-
-        if (mod && e.key === "s") {
-          e.preventDefault();
-          this.saveTab();
-        } else if (mod && e.key === "o") {
-          e.preventDefault();
-          this.openFileDialog();
-        } else if (mod && e.key === "n") {
-          e.preventDefault();
-          this.newTab();
-        } else if (mod && e.key === "w") {
-          e.preventDefault();
-          this.closeTab(this.activeTabId);
-        } else if (mod && e.shiftKey && e.key === "P") {
-          e.preventDefault();
-          this.togglePreview();
-        } else if (mod && e.key === "f") {
-          e.preventDefault();
-          this.showSearch();
-        } else if (e.key === "F3") {
-          e.preventDefault();
-          this.findNext(e.shiftKey);
-        } else if (mod && e.key === "h") {
-          e.preventDefault();
-          this.showReplace();
+      var self = this;
+      document.addEventListener("keydown", function (e) {
+        var mod = e.ctrlKey || e.metaKey;
+        if (mod && e.key === "s") { e.preventDefault(); self.saveTab(); }
+        else if (mod && e.key === "o") { e.preventDefault(); self.openFileDialog(); }
+        else if (mod && e.key === "n") { e.preventDefault(); self.newTab(); }
+        else if (mod && e.key === "w") { e.preventDefault(); self.closeTab(self.activeTabId); }
+        else if (mod && e.shiftKey && e.key === "P") { e.preventDefault(); self.togglePreview(); }
+        else if (mod && e.key === "f") { e.preventDefault(); self.showSearch(); }
+        else if (e.key === "F3") { e.preventDefault(); self.findNext(e.shiftKey); }
+        else if (mod && e.key === "h") { e.preventDefault(); self.showReplace(); }
       });
-    }
     }
 
     // ── Tab management ────────────────────────────────────────────────
