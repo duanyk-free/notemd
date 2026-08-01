@@ -363,149 +363,178 @@
     }
 
     saveTabAs() {
-      const path = prompt("Save as (full path):", "/home/admin/");
-      if (!path) return;
+      this.showFilePicker("save");
+    }
 
-      const content = this.cm.getValue();
+    openFileDialog() {
+      this.showFilePicker("open");
+    }
+
+    // ── File Picker Modal (Open & Save) ──────────────────────────────────
+
+    showFilePicker(mode) {
+      var self = this;
+      this._pickerMode = mode || "open";
+      var overlay = document.getElementById("file-picker-overlay");
+      overlay.classList.remove("hidden");
+
+      // Set title & button based on mode
+      var isSave = (mode === "save");
+      document.querySelector("#file-picker .modal-header span").textContent = isSave ? "💾 Save File" : "📂 Open File";
+      var actionBtn = document.getElementById("btn-picker-open");
+      actionBtn.textContent = isSave ? "Save" : "Open";
+      actionBtn.className = isSave ? "btn-primary" : "btn-primary";
+
+      document.getElementById("picker-input").value = "";
+      self._pickerSelected = null;
+      self._pickerDir = null;
+      var homeDir = self._homeDir || "/home/admin";
+      self._loadPickerDir(homeDir);
+      document.getElementById("picker-input").placeholder = isSave ? "Enter filename..." : "Filename or full path...";
+      document.getElementById("picker-input").focus();
+
+      // Close handlers
+      function close() { overlay.classList.add("hidden"); }
+      document.getElementById("btn-picker-close").onclick = close;
+      document.getElementById("btn-picker-cancel").onclick = close;
+      overlay.onclick = function (e) { if (e.target === overlay) close(); };
+
+      // Action button (Open or Save)
+      actionBtn.onclick = function () {
+        var input = document.getElementById("picker-input").value.trim();
+        if (isSave) {
+          // Combine current directory + filename
+          var name = input;
+          if (!name) return;
+          var dir = self._pickerDir || homeDir;
+          var fullPath = name.startsWith("/") ? name : dir + "/" + name;
+          close();
+          self._doSave(fullPath);
+        } else {
+          var target = input || self._pickerSelected;
+          if (target) { close(); self.loadFile(target); }
+        }
+      };
+
+      // Keyboard
+      var input = document.getElementById("picker-input");
+      input.onkeydown = function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          var val = input.value.trim();
+          if (isSave) {
+            if (val) {
+              var dir = self._pickerDir || homeDir;
+              var fullPath = val.startsWith("/") ? val : dir + "/" + val;
+              close();
+              self._doSave(fullPath);
+            }
+          } else {
+            if (val) self._pickerSelected = val;
+            if (self._pickerSelected) { close(); self.loadFile(self._pickerSelected); }
+          }
+        } else if (e.key === "Escape") {
+          e.stopPropagation(); close();
+        }
+      };
+
+      // Global Escape
+      function onKey(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } }
+      document.addEventListener("keydown", onKey);
+    }
+
+    _doSave(path) {
+      var self = this;
+      var content = self.cm.getValue();
       fetch("/api/save-as", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, content }),
+        body: JSON.stringify({ path: path, content: content }),
       })
-        .then((r) => r.json())
-        .then((data) => {
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
           if (data.ok) {
-            const tab = this.tabs.find((t) => t.id === this.activeTabId);
+            var tab = self.tabs.find(function (t) { return t.id === self.activeTabId; });
             if (tab) {
               tab.path = data.path;
               tab.title = data.path.split("/").pop();
               tab.content = content;
-              this._setEditorMode(data.path);
-              this.markClean();
-              this.updateStatus();
-              this.updatePreview();
+              self._setEditorMode(data.path);
+              self.markClean();
+              self.updateStatus();
+              self.updatePreview();
             }
           } else {
             alert("Save failed: " + (data.error || "Unknown error"));
           }
         })
-        .catch((err) => alert("Save failed: " + err.message));
-    }
-
-    openFileDialog() {
-      this.showFilePicker();
-    }
-
-    // ── File Picker Modal ──────────────────────────────────────────────
-
-    showFilePicker() {
-      const overlay = document.getElementById("file-picker-overlay");
-      overlay.classList.remove("hidden");
-      document.getElementById("picker-input").value = "";
-      this._pickerSelected = null;
-      this._pickerDir = null;
-      // Start from home directory (stored from init)
-      const homeDir = this._homeDir || "/home/admin";
-      this._loadPickerDir(homeDir);
-      document.getElementById("picker-input").focus();
-
-      // Close handlers
-      const close = () => overlay.classList.add("hidden");
-      document.getElementById("btn-picker-close").onclick = close;
-      document.getElementById("btn-picker-cancel").onclick = close;
-      overlay.onclick = (e) => { if (e.target === overlay) close(); };
-
-      // Open button
-      document.getElementById("btn-picker-open").onclick = () => {
-        const input = document.getElementById("picker-input").value.trim();
-        const target = input || this._pickerSelected;
-        if (target) {
-          close();
-          this.loadFile(target);
-        }
-      };
-
-      // Keyboard: Enter to open selected or typed path, Escape to close
-      const input = document.getElementById("picker-input");
-      input.onkeydown = (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          const val = input.value.trim();
-          if (val) {
-            this._pickerSelected = val;
-          }
-          if (this._pickerSelected) {
-            close();
-            this.loadFile(this._pickerSelected);
-          }
-        } else if (e.key === "Escape") {
-          e.stopPropagation();
-          close();
-        }
-      };
-
-      // Global Escape
-      const onKey = (e) => {
-        if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
-      };
-      document.addEventListener("keydown", onKey);
+        .catch(function (err) { alert("Save failed: " + err.message); });
     }
 
     async _loadPickerDir(dirPath) {
-      this._pickerDir = dirPath;
-      const list = document.getElementById("picker-file-list");
-      const bread = document.getElementById("picker-breadcrumb");
+      var self = this;
+      self._pickerDir = dirPath;
+      var list = document.getElementById("picker-file-list");
+      var bread = document.getElementById("picker-breadcrumb");
       list.innerHTML = '<div class="picker-item"><span class="p-icon">⏳</span> Loading...</div>';
 
       // Breadcrumb
-      const parts = dirPath.split("/").filter(Boolean);
-      let cum = "";
+      var parts = dirPath.split("/").filter(Boolean);
+      var cum = "";
       bread.innerHTML = '<span class="crumb" data-path="/">🏠</span>';
-      parts.forEach((p, i) => {
+      parts.forEach(function (p) {
         cum += "/" + p;
         bread.innerHTML += '<span class="crumb-sep">▸</span>';
-        bread.innerHTML += `<span class="crumb" data-path="${this._esc(cum)}">${this._esc(p)}</span>`;
+        bread.innerHTML += '<span class="crumb" data-path="' + self._esc(cum) + '">' + self._esc(p) + '</span>';
       });
-      bread.querySelectorAll(".crumb").forEach((c) => {
-        c.onclick = () => this._loadPickerDir(c.dataset.path);
+      bread.querySelectorAll(".crumb").forEach(function (c) {
+        c.onclick = function () { self._loadPickerDir(c.dataset.path); };
       });
 
       try {
-        const res = await fetch("/api/files?dir=" + encodeURIComponent(dirPath));
-        const data = await res.json();
+        var res = await fetch("/api/files?dir=" + encodeURIComponent(dirPath));
+        var data = await res.json();
         if (data.error) {
-          list.innerHTML = `<div class="picker-item">❌ ${this._esc(data.error)}</div>`;
+          list.innerHTML = '<div class="picker-item">❌ ' + self._esc(data.error) + '</div>';
           return;
         }
         list.innerHTML = "";
-        data.items.forEach((item) => {
-          const el = document.createElement("div");
+        data.items.forEach(function (item) {
+          var el = document.createElement("div");
           el.className = "picker-item";
-          const icon = item.isDir ? "📁" : this._getFileIcon(item.name);
-          const size = item.isDir ? "" : this._formatSize(item.size);
-          el.innerHTML = `<span class="p-icon">${icon}</span><span class="p-name">${this._esc(item.name)}</span><span class="p-size">${size}</span>`;
-          el.onclick = () => {
+          var icon = item.isDir ? "📁" : self._getFileIcon(item.name);
+          var sizeStr = item.isDir ? "" : self._formatSize(item.size);
+          el.innerHTML = '<span class="p-icon">' + icon + '</span><span class="p-name">' + self._esc(item.name) + '</span><span class="p-size">' + sizeStr + '</span>';
+          el.onclick = function () {
             if (item.isDir) {
-              this._loadPickerDir(item.path);
+              self._loadPickerDir(item.path);
             } else {
-              // Select file
-              list.querySelectorAll(".picker-item").forEach((e) => e.classList.remove("selected"));
+              list.querySelectorAll(".picker-item").forEach(function (e) { e.classList.remove("selected"); });
               el.classList.add("selected");
-              this._pickerSelected = item.path;
-              document.getElementById("picker-input").value = item.path;
+              self._pickerSelected = item.path;
+              if (self._pickerMode === "save") {
+                // In save mode, fill just the filename
+                document.getElementById("picker-input").value = item.name;
+              } else {
+                document.getElementById("picker-input").value = item.path;
+              }
             }
           };
-          // Double-click to open immediately
-          el.ondblclick = () => {
-            if (!item.isDir) {
+          el.ondblclick = function () {
+            if (item.isDir) {
+              self._loadPickerDir(item.path);
+            } else if (self._pickerMode === "open") {
               document.getElementById("file-picker-overlay").classList.add("hidden");
-              this.loadFile(item.path);
+              self.loadFile(item.path);
+            } else {
+              // Save mode: use the filename
+              document.getElementById("picker-input").value = item.name;
             }
           };
           list.appendChild(el);
         });
       } catch (err) {
-        list.innerHTML = `<div class="picker-item">❌ ${this._esc(err.message)}</div>`;
+        list.innerHTML = '<div class="picker-item">❌ ' + self._esc(err.message) + '</div>';
       }
     }
 
