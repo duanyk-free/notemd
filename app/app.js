@@ -76,6 +76,9 @@
         this.bindEvents();
         this.bindKeyboard();
         this.newTab();
+        // Signal successful init
+        document.getElementById("status-file").textContent = "Ready";
+        document.getElementById("status-mode").textContent = "Notemd v0.2";
       } catch (e) {
         document.body.innerHTML = '<div style="padding:40px;color:red;font-family:monospace"><h2>Init Error</h2><pre>' + e.message + '\n\n' + e.stack + '</pre></div>';
         throw e;
