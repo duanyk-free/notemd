@@ -55,6 +55,27 @@
     </div>
   </div>
 
+  <!-- Markdown help modal -->
+  <div id="md-help-overlay" class="modal-overlay hidden">
+    <div class="modal-dialog" style="max-width:500px">
+      <div class="modal-header">
+        <span>📝 Markdown Quick Reference</span>
+        <button id="btn-md-help-close" class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:16px;line-height:1.8;font-size:13px">
+        <b># Heading 1</b> &nbsp; <b>## Heading 2</b> &nbsp; <b>### Heading 3</b><br>
+        <b>**bold**</b> &nbsp; <b>*italic*</b> &nbsp; <b>`code`</b> &nbsp; <b>~~strike~~</b><br>
+        <b>[link](url)</b> &nbsp; <b>![image](url)</b><br>
+        <b>-</b> list &nbsp; <b>1.</b> numbered &nbsp; <b>- [ ]</b> task<br>
+        <b>&gt;</b> blockquote &nbsp; <b>---</b> horizontal rule<br>
+        <b>```lang</b> code block <b>```</b><br>
+        <b>| A | B |</b> table &nbsp; <b>|---|---|</b><br>
+        <hr style="margin:8px 0;border-color:var(--border)">
+        <b>Ctrl+B</b> bold &nbsp; <b>Ctrl+I</b> italic &nbsp; <b>Ctrl+Shift+P</b> preview
+      </div>
+    </div>
+  </div>
+
   <footer id="status-bar">
     <span id="status-file" title="Current file path">untitled</span>
     <span class="status-sep">│</span>
@@ -68,6 +89,7 @@
       <button id="btn-open" title="Open file (Ctrl+O)">📂 Open</button>
       <button id="btn-save" title="Save (Ctrl+S)">💾 Save</button>
       <button id="btn-preview" title="Toggle preview (Ctrl+Shift+P)">👁 Preview</button>
+      <button id="btn-md-help" title="Markdown syntax help" style="display:none">📝 Help</button>
       <button id="btn-theme" title="Toggle dark/light theme">🌓</button>
     </div>
   </footer>

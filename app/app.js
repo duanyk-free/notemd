@@ -134,6 +134,10 @@
       document.getElementById("btn-save").onclick = () => this.saveTab();
       document.getElementById("btn-open").onclick = () => this.openFileDialog();
       document.getElementById("btn-preview").onclick = () => this.togglePreview();
+      document.getElementById("btn-md-help").onclick = () => this.showMdHelp();
+      document.getElementById("btn-md-help-close").onclick = () => {
+        document.getElementById("md-help-overlay").classList.add("hidden");
+      };
       document.getElementById("btn-theme").onclick = () => this.toggleTheme();
       document.getElementById("btn-close-preview").onclick = () => this.hidePreview();
 
@@ -162,6 +166,7 @@
         else if (mod && e.key === "f") { e.preventDefault(); self.showSearch(); }
         else if (e.key === "F3") { e.preventDefault(); self.findNext(e.shiftKey); }
         else if (mod && e.key === "h") { e.preventDefault(); self.showReplace(); }
+        else if (mod && e.shiftKey && e.key === "H") { e.preventDefault(); self.showMdHelp(); }
       });
     }
 
@@ -262,10 +267,10 @@
       this.renderTabs();
       document.title = (tab.dirty ? "● " : "") + tab.title + " — Notemd";
 
-      // Auto-show preview for markdown files, hide for others
-      if (tab.path && /\.(md|markdown|mdown)$/i.test(tab.path)) {
-        if (!this.previewVisible) this.showPreview();
-      }
+      // Auto-show preview & help button for markdown files
+      var isMd = tab.path && /\.(md|markdown|mdown)$/i.test(tab.path);
+      document.getElementById("btn-md-help").style.display = isMd ? "" : "none";
+      if (isMd && !this.previewVisible) this.showPreview();
     }
 
     _setEditorMode(path) {
@@ -643,37 +648,65 @@
     // ── Search ───────────────────────────────────────────────────────
 
     showSearch() {
-      if (this.cm && typeof CodeMirror.commands.find === "function") {
-        CodeMirror.commands.find(this.cm);
-        // Focus the search input so Enter works immediately
-        setTimeout(() => {
-          const input = document.querySelector(".CodeMirror-dialog input");
-          if (input) input.focus();
-        }, 50);
-      }
+      var self = this;
+      if (!self.cm) return;
+      CodeMirror.commands.find(self.cm);
+      // Focus the search input + bind Enter to find-next
+      setTimeout(function () {
+        var input = document.querySelector(".CodeMirror-dialog input");
+        if (input) {
+          input.focus();
+          // Ensure Enter does find-next (CodeMirror does this, but reinforce)
+          input.onkeydown = function (e) {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.shiftKey) {
+                CodeMirror.commands.findPrev(self.cm);
+              } else {
+                CodeMirror.commands.findNext(self.cm);
+              }
+            }
+          };
+        }
+      }, 60);
     }
 
     showReplace() {
-      if (this.cm && typeof CodeMirror.commands.replace === "function") {
-        CodeMirror.commands.replace(this.cm);
-        setTimeout(() => {
-          const input = document.querySelector(".CodeMirror-dialog input");
-          if (input) input.focus();
-        }, 50);
-      }
+      var self = this;
+      if (!self.cm) return;
+      CodeMirror.commands.replace(self.cm);
+      setTimeout(function () {
+        var inputs = document.querySelectorAll(".CodeMirror-dialog input");
+        if (inputs.length > 0) inputs[0].focus();
+      }, 60);
     }
 
     findNext(backward) {
       if (!this.cm) return;
       if (backward) {
-        if (typeof CodeMirror.commands.findPrev === "function") {
-          CodeMirror.commands.findPrev(this.cm);
-        }
+        CodeMirror.commands.findPrev(this.cm);
       } else {
-        if (typeof CodeMirror.commands.findNext === "function") {
-          CodeMirror.commands.findNext(this.cm);
-        }
+        CodeMirror.commands.findNext(this.cm);
       }
+    }
+
+    showMdHelp() {
+      var overlay = document.getElementById("md-help-overlay");
+      overlay.classList.remove("hidden");
+      overlay.onclick = function (e) {
+        if (e.target === overlay) overlay.classList.add("hidden");
+      };
+      var onKey = function (e) {
+        if (e.key === "Escape") {
+          overlay.classList.add("hidden");
+          document.removeEventListener("keydown", onKey);
+        }
+      };
+      document.addEventListener("keydown", onKey);
+      document.getElementById("btn-md-help-close").onclick = function () {
+        overlay.classList.add("hidden");
+      };
     }
 
     // ── Theme ────────────────────────────────────────────────────────
