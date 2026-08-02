@@ -138,6 +138,10 @@
       document.getElementById("btn-md-help-close").onclick = () => {
         document.getElementById("md-help-overlay").classList.add("hidden");
       };
+      document.getElementById("btn-shortcuts").onclick = () => this.showShortcuts();
+      document.getElementById("btn-shortcuts-close").onclick = () => {
+        document.getElementById("shortcuts-overlay").classList.add("hidden");
+      };
       document.getElementById("btn-theme").onclick = () => this.toggleTheme();
       document.getElementById("btn-close-preview").onclick = () => this.hidePreview();
 
@@ -691,22 +695,22 @@
       }
     }
 
+    showShortcuts() {
+      var overlay = document.getElementById("shortcuts-overlay");
+      overlay.classList.remove("hidden");
+      var close = function () { overlay.classList.add("hidden"); };
+      overlay.onclick = function (e) { if (e.target === overlay) close(); };
+      var onKey = function (e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+      document.addEventListener("keydown", onKey);
+    }
+
     showMdHelp() {
       var overlay = document.getElementById("md-help-overlay");
       overlay.classList.remove("hidden");
-      overlay.onclick = function (e) {
-        if (e.target === overlay) overlay.classList.add("hidden");
-      };
-      var onKey = function (e) {
-        if (e.key === "Escape") {
-          overlay.classList.add("hidden");
-          document.removeEventListener("keydown", onKey);
-        }
-      };
+      var close = function () { overlay.classList.add("hidden"); };
+      overlay.onclick = function (e) { if (e.target === overlay) close(); };
+      var onKey = function (e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
       document.addEventListener("keydown", onKey);
-      document.getElementById("btn-md-help-close").onclick = function () {
-        overlay.classList.add("hidden");
-      };
     }
 
     // ── Theme ────────────────────────────────────────────────────────
