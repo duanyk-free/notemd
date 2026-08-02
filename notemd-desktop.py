@@ -217,12 +217,23 @@ class Handler(BaseHTTPRequestHandler):
 
 # ── Server runner ────────────────────────────────────────────────────────
 
-def _run_server():
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
+def _run_server(host="127.0.0.1"):
+    server = HTTPServer((host, PORT), Handler)
     server.serve_forever()
 
 
 # ── Entry points ─────────────────────────────────────────────────────────
+
+def run_server():
+    """Run HTTP server only (no browser, no desktop window)."""
+    threading.Thread(target=_run_server, daemon=True).start()
+    print("  Press Ctrl+C to stop.")
+    try:
+        import time
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("  Bye!")
 
 def run_desktop():
     """Open in a native desktop window via pywebview."""
@@ -268,12 +279,18 @@ def main():
     if "--port" in args:
         PORT = int(args[args.index("--port") + 1])
 
+    host = "127.0.0.1"
+    if "--host" in args:
+        host = args[args.index("--host") + 1]
+
     # Load frontend into memory
     _load_embedded()
     print(f"  Notemd Desktop  v0.2.0")
-    print(f"  → http://127.0.0.1:{PORT}")
+    print(f"  → http://{host}:{PORT}")
 
-    if "--browser" in args:
+    if "--server" in args:
+        _run_server(host=host)
+    elif "--browser" in args:
         run_browser()
     else:
         try:
