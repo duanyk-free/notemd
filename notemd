@@ -509,7 +509,13 @@ button:active { background: var(--bg-active); }
 .markdown-body tr:nth-child(even) { background: var(--bg-secondary); }
 .markdown-body img { max-width: 100%; border-radius: 4px; }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
-.markdown-body input[type="checkbox"] { margin-right: 0.5em; }
+.markdown-body input[type="checkbox"] {
+  margin-right: 0.5em;
+  width: 14px;
+  height: 14px;
+  cursor: default;
+  accent-color: var(--accent);
+}
 
 /* ── Status bar ──────────────────────────────────────────────────────── */
 
@@ -1819,8 +1825,12 @@ class Handler(BaseHTTPRequestHandler):
         content = body.get("content", "")
         if not content: return self._json({"html": ""})
         try:
+            import re
             import markdown as md
             html = md.markdown(content, extensions=["fenced_code", "tables", "codehilite", "nl2br", "sane_lists"])
+            html = re.sub(r'<li>\[ \] ', '<li><input type="checkbox" disabled=""> ', html)
+            html = re.sub(r'<li>\[x\] ', '<li><input type="checkbox" disabled="" checked=""> ', html)
+            html = re.sub(r'<li>\[X\] ', '<li><input type="checkbox" disabled="" checked=""> ', html)
             self._json({"html": html})
         except ImportError:
             self._json({"error": "markdown library not available"}, 501)

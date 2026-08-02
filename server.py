@@ -205,6 +205,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"html": ""})
 
         try:
+            import re
             import markdown as md_lib
             html = md_lib.markdown(
                 content,
@@ -216,6 +217,10 @@ class Handler(BaseHTTPRequestHandler):
                     "sane_lists",
                 ],
             )
+            # Convert GFM task lists to checkboxes
+            html = re.sub(r'<li>\[ \] ', '<li><input type="checkbox" disabled=""> ', html)
+            html = re.sub(r'<li>\[x\] ', '<li><input type="checkbox" disabled="" checked=""> ', html)
+            html = re.sub(r'<li>\[X\] ', '<li><input type="checkbox" disabled="" checked=""> ', html)
             self._json({"html": html})
         except ImportError:
             self._json({"error": "Python markdown library not available"}, 501)
